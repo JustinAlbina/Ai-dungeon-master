@@ -142,7 +142,7 @@ function PlayerCard({p,isMe,isTurn,initiative,onClick}){
   );
 }
 
-// ─── Animated Dice Roller (inline, used for both DM-requested and free rolls) ─
+// ─── Animated Dice Roller ───────────────────────────────────────────────────
 const DICE_SIDES=[4,6,8,10,12,20,100];
 
 function DiceRollerInline({onRoll,onClose,lockedDie,lockedModifier,lockedLabel,freeRoll}){
@@ -151,10 +151,11 @@ function DiceRollerInline({onRoll,onClose,lockedDie,lockedModifier,lockedLabel,f
   const[rolling,setRolling]=useState(false);
   const[result,setResult]=useState(null);
   const[display,setDisplay]=useState(null);
+  const[countdown,setCountdown]=useState(null); // seconds remaining before auto-send
 
   const roll=()=>{
-    if(rolling)return;
-    setRolling(true);setResult(null);
+    if(rolling||result!==null)return;
+    setRolling(true);
     let count=0;
     const interval=setInterval(()=>{
       setDisplay(rollDie(selected));
@@ -163,10 +164,23 @@ function DiceRollerInline({onRoll,onClose,lockedDie,lockedModifier,lockedLabel,f
         clearInterval(interval);
         const final=rollDie(selected);
         setDisplay(final);setResult(final);setRolling(false);
+
         const total=final+Number(modifier);
         const isCrit=selected===20&&final===20;
         const isFail=selected===20&&final===1;
-        onRoll({die:selected,roll:final,modifier:Number(modifier),total,isCrit,isFail});
+
+        // Show result for 2 seconds before sending
+        setCountdown(2);
+        let secs=2;
+        const cd=setInterval(()=>{
+          secs-=1;
+          setCountdown(secs);
+          if(secs<=0){
+            clearInterval(cd);
+            setCountdown(null);
+            onRoll({die:selected,roll:final,modifier:Number(modifier),total,isCrit,isFail});
+          }
+        },1000);
       }
     },55);
   };
@@ -179,64 +193,67 @@ function DiceRollerInline({onRoll,onClose,lockedDie,lockedModifier,lockedLabel,f
     <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,backdropFilter:"blur(6px)"}}>
       <div style={{background:"linear-gradient(135deg,rgba(28,13,4,.99),rgba(14,7,22,.99))",border:"1px solid rgba(212,170,60,.5)",borderRadius:"20px",padding:"28px",width:"320px",textAlign:"center",boxShadow:"0 0 60px rgba(0,0,0,.9),0 0 30px rgba(100,60,0,.3)"}}>
 
-        {/* Header */}
         <div style={{fontFamily:"'Cinzel',serif",color:"#f4c842",fontSize:"13px",letterSpacing:"3px",marginBottom:"6px"}}>
           {freeRoll?"🎲 FREE ROLL":"🎲 ROLL REQUIRED"}
         </div>
         {lockedLabel&&<div style={{fontStyle:"italic",color:"#c9a96e",fontSize:"13px",fontFamily:"'Crimson Text',serif",marginBottom:"14px"}}>"{lockedLabel}"</div>}
 
-        {/* Die selector — only show in free roll mode */}
         {freeRoll&&(
           <div style={{display:"flex",gap:"6px",justifyContent:"center",flexWrap:"wrap",marginBottom:"16px"}}>
             {DICE_SIDES.map(d=>(
-              <button key={d} onClick={()=>{setSelected(d);setResult(null);}} style={{width:"40px",height:"40px",borderRadius:"8px",background:selected===d?"linear-gradient(135deg,#5a3a00,#3a2000)":"rgba(20,10,5,.8)",border:"1px solid "+(selected===d?"#c8943a":"rgba(200,148,58,.2)"),color:selected===d?"#f4c842":"#8a6040",fontFamily:"'Cinzel',serif",fontSize:"10px",cursor:"pointer",transition:"all .15s"}}>d{d}</button>
+              <button key={d} onClick={()=>{if(!rolling&&result===null){setSelected(d);}}} style={{width:"40px",height:"40px",borderRadius:"8px",background:selected===d?"linear-gradient(135deg,#5a3a00,#3a2000)":"rgba(20,10,5,.8)",border:"1px solid "+(selected===d?"#c8943a":"rgba(200,148,58,.2)"),color:selected===d?"#f4c842":"#8a6040",fontFamily:"'Cinzel',serif",fontSize:"10px",cursor:"pointer",transition:"all .15s"}}>d{d}</button>
             ))}
           </div>
         )}
-        {/* In DM-requested mode, just show which die is locked */}
         {!freeRoll&&(
           <div style={{marginBottom:"14px",color:"#e8d5a3",fontFamily:"'Crimson Text',serif",fontSize:"14px"}}>
-            Roll a <strong style={{color:"#f4c842"}}>{selected===20?"d20":"d"+selected}</strong>
+            Roll a <strong style={{color:"#f4c842"}}>d{selected}</strong>
             {modifier!==0&&<span style={{color:"#c8943a"}}> ({modifier>=0?"+":""}{modifier} modifier)</span>}
           </div>
         )}
 
         {/* Animated die face */}
-        <div style={{width:"110px",height:"110px",margin:"0 auto 16px",background:rolling?"radial-gradient(circle,#5a3a00,#2a1500)":(isCrit?"radial-gradient(circle,#1a4a1a,#0a2a0a)":isFail?"radial-gradient(circle,#4a1a1a,#2a0a0a)":"radial-gradient(circle,#3a2500,#1a1000)"),border:"2px solid "+(isCrit?"#60ff60":isFail?"#ff6060":"#c8943a"),borderRadius:"14px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:display!==null?"50px":"24px",color:isCrit?"#60ff60":isFail?"#ff6060":"#f4c842",fontFamily:"'Cinzel',serif",fontWeight:700,boxShadow:rolling?"0 0 30px rgba(200,148,58,.7)":(isCrit?"0 0 30px rgba(60,255,60,.5)":isFail?"0 0 30px rgba(255,60,60,.5)":"none"),transition:"background .1s,box-shadow .1s",animation:rolling?"dicespin .15s linear infinite":"none"}}>
+        <div style={{width:"110px",height:"110px",margin:"0 auto 16px",background:rolling?"radial-gradient(circle,#5a3a00,#2a1500)":(isCrit?"radial-gradient(circle,#1a4a1a,#0a2a0a)":isFail?"radial-gradient(circle,#4a1a1a,#2a0a0a)":"radial-gradient(circle,#3a2500,#1a1000)"),border:"2px solid "+(isCrit?"#60ff60":isFail?"#ff6060":"#c8943a"),borderRadius:"14px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:display!==null?"50px":"24px",color:isCrit?"#60ff60":isFail?"#ff6060":"#f4c842",fontFamily:"'Cinzel',serif",fontWeight:700,boxShadow:rolling?"0 0 30px rgba(200,148,58,.7)":(isCrit?"0 0 30px rgba(60,255,60,.5)":isFail?"0 0 30px rgba(255,60,60,.5)":"none"),transition:"background .15s,box-shadow .15s",animation:rolling?"dicespin .15s linear infinite":"none"}}>
           {display!==null?display:"d"+selected}
         </div>
 
-        {/* Result line */}
+        {/* Result + countdown */}
         {result!==null&&(
           <div style={{marginBottom:"12px"}}>
             {isCrit&&<div style={{color:"#60ff60",fontFamily:"'Cinzel',serif",fontSize:"12px",letterSpacing:"2px",marginBottom:"4px"}}>⚡ NATURAL 20! CRITICAL HIT!</div>}
             {isFail&&<div style={{color:"#ff6060",fontFamily:"'Cinzel',serif",fontSize:"12px",letterSpacing:"2px",marginBottom:"4px"}}>💀 NATURAL 1! CRITICAL FAIL!</div>}
             {modifier!==0&&(
-              <div style={{color:"#c8a060",fontSize:"14px",fontFamily:"'Crimson Text',serif"}}>
-                {result} {modifier>=0?"+":""}{modifier} = <strong style={{color:"#f4c842",fontSize:"18px"}}>{total}</strong>
+              <div style={{color:"#c8a060",fontSize:"16px",fontFamily:"'Crimson Text',serif"}}>
+                {result} {modifier>=0?"+":""}{modifier} = <strong style={{color:"#f4c842",fontSize:"22px"}}>{total}</strong>
+              </div>
+            )}
+            {modifier===0&&<div style={{color:"#f4c842",fontSize:"28px",fontFamily:"'Cinzel',serif",fontWeight:700}}>{result}</div>}
+            {countdown!==null&&(
+              <div style={{color:"#6a4820",fontFamily:"'Cinzel',serif",fontSize:"10px",letterSpacing:"2px",marginTop:"8px"}}>
+                SENDING IN {countdown}...
               </div>
             )}
           </div>
         )}
 
-        {/* Modifier row — only in free roll mode */}
         {freeRoll&&(
           <div style={{display:"flex",alignItems:"center",gap:"8px",justifyContent:"center",marginBottom:"16px"}}>
             <span style={{color:"#8a6040",fontFamily:"'Cinzel',serif",fontSize:"10px",letterSpacing:"1px"}}>MODIFIER</span>
-            <button onClick={()=>setModifier(m=>m-1)} style={{width:"26px",height:"26px",borderRadius:"6px",background:"rgba(20,10,5,.8)",border:"1px solid rgba(200,148,58,.2)",color:"#c8943a",cursor:"pointer",fontSize:"16px"}}>−</button>
+            <button onClick={()=>{if(!rolling&&result===null)setModifier(m=>m-1);}} style={{width:"26px",height:"26px",borderRadius:"6px",background:"rgba(20,10,5,.8)",border:"1px solid rgba(200,148,58,.2)",color:"#c8943a",cursor:"pointer",fontSize:"16px"}}>−</button>
             <span style={{color:"#f4c842",fontFamily:"'Cinzel',serif",fontSize:"15px",minWidth:"28px",textAlign:"center"}}>{modifier>=0?"+":""}{modifier}</span>
-            <button onClick={()=>setModifier(m=>m+1)} style={{width:"26px",height:"26px",borderRadius:"6px",background:"rgba(20,10,5,.8)",border:"1px solid rgba(200,148,58,.2)",color:"#c8943a",cursor:"pointer",fontSize:"16px"}}>+</button>
+            <button onClick={()=>{if(!rolling&&result===null)setModifier(m=>m+1);}} style={{width:"26px",height:"26px",borderRadius:"6px",background:"rgba(20,10,5,.8)",border:"1px solid rgba(200,148,58,.2)",color:"#c8943a",cursor:"pointer",fontSize:"16px"}}>+</button>
           </div>
         )}
 
-        <style>{`@keyframes dicespin{0%{transform:rotate(0deg) scale(1)}25%{transform:rotate(8deg) scale(1.04)}75%{transform:rotate(-8deg) scale(1.04)}100%{transform:rotate(0deg) scale(1)}}`}</style>
+        <style>{`@keyframes dicespin{0%{transform:rotate(0deg) scale(1)}25%{transform:rotate(8deg) scale(1.05)}75%{transform:rotate(-8deg) scale(1.05)}100%{transform:rotate(0deg) scale(1)}}`}</style>
 
-        <button onClick={roll} disabled={rolling} style={{width:"100%",padding:"11px",background:rolling?"rgba(30,15,5,.8)":"linear-gradient(135deg,#5a3a00,#3a2000)",border:"1px solid "+(rolling?"#4a3020":"#c8943a"),borderRadius:"8px",color:rolling?"#6a5030":"#f4c842",fontFamily:"'Cinzel',serif",fontSize:"13px",letterSpacing:"2px",cursor:rolling?"not-allowed":"pointer",marginBottom:"8px",transition:"all .2s"}}>
-          {rolling?"🎲 ROLLING...":"🎲 ROLL d"+selected}
-        </button>
+        {result===null&&(
+          <button onClick={roll} disabled={rolling} style={{width:"100%",padding:"11px",background:rolling?"rgba(30,15,5,.8)":"linear-gradient(135deg,#5a3a00,#3a2000)",border:"1px solid "+(rolling?"#4a3020":"#c8943a"),borderRadius:"8px",color:rolling?"#6a5030":"#f4c842",fontFamily:"'Cinzel',serif",fontSize:"13px",letterSpacing:"2px",cursor:rolling?"not-allowed":"pointer",marginBottom:"8px",transition:"all .2s"}}>
+            {rolling?"🎲 ROLLING...":"🎲 ROLL d"+selected}
+          </button>
+        )}
 
-        {/* Only show close in free-roll mode; DM-requested rolls can't be skipped */}
-        {freeRoll&&(
+        {freeRoll&&result===null&&(
           <button onClick={onClose} style={{width:"100%",padding:"8px",background:"transparent",border:"1px solid rgba(200,148,58,.15)",borderRadius:"8px",color:"#5a4030",fontFamily:"'Cinzel',serif",fontSize:"10px",letterSpacing:"1px",cursor:"pointer"}}>CLOSE</button>
         )}
       </div>
@@ -254,7 +271,7 @@ export default function Game({session,character,onLeave}){
   const[speaking,setSpeaking]=useState(false);
   const[listening,setListening]=useState(false);
   const[voiceOn,setVoiceOn]=useState(true);
-  const[showFreeRoll,setShowFreeRoll]=useState(false); // free roll (🎲 button)
+  const[showFreeRoll,setShowFreeRoll]=useState(false);
   const[showSheet,setShowSheet]=useState(false);
   const[showMap,setShowMap]=useState(false);
   const[lightbox,setLightbox]=useState(null); // eslint-disable-line
@@ -268,7 +285,7 @@ export default function Game({session,character,onLeave}){
   const[players,setPlayers]=useState({});
   const[initialized,setInitialized]=useState(false);
   const[started,setStarted]=useState(false);
-  const[pendingRoll,setPendingRoll]=useState(null); // DM-requested roll
+  const[pendingRoll,setPendingRoll]=useState(null);
 
   const bottomRef=useRef(null);
   const audioRef=useRef(null);
@@ -324,7 +341,6 @@ export default function Game({session,character,onLeave}){
     setStarted(true);setInitialized(true);launch(data?.players||players);
   };
 
-  // TTS pre-fetch pipeline
   const fetchTTSChunk=async(text)=>{
     const res=await fetch("/api/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text,voice:"fable"})});
     if(!res.ok)return null;
@@ -442,12 +458,15 @@ export default function Game({session,character,onLeave}){
     const turnUpdate=parseTag(reply,"TURN");const newTurn=turnUpdate||prevTurn;
     const imagePrompt=parseTag(reply,"SCENE_IMAGE");
     let newImage=currentImg;
-    if(imagePrompt){const url=await generateImage(imagePrompt);if(url){setSceneImage(url);newImage=url;}}
+    // Image generates in background — doesn't block TTS
+    if(imagePrompt){
+      generateImage(imagePrompt).then(url=>{if(url){setSceneImage(url);newImage=url;}});
+    }
     if(Object.keys(sheetUpdates).length)setCharacters(newChars);
     if(questUpdate)setQuests(newQuests);
     if(initUpdate)setInitiative(newInit);
     if(turnUpdate)setCurrentTurn(newTurn);
-    return{newChars,newQuests,newImage,newInit,newTurn};
+    return{newChars,newQuests,newImage:currentImg,newInit,newTurn}; // return current img, new one updates async
   };
 
   const launch=async(currentPlayers)=>{
@@ -460,15 +479,20 @@ export default function Game({session,character,onLeave}){
         settingHint==="Horror"?"An ancient crumbling mansion at midnight, lightning illuminating gargoyles, fog covering the ground":
         settingHint==="Sci-Fi D&D"?"A futuristic spaceport with ancient ruins visible, neon lights mixing with magical glows":
         "A grand medieval fantasy tavern interior, warm firelight, adventurers gathered, weapons on walls";
-      const imagePromise=generateImage(quickScenePrompt);
+
+      // Start quick image in background immediately
+      generateImage(quickScenePrompt).then(url=>{if(url)setSceneImage(url);});
+
+      // Get DM reply
       const reply=await askClaude([{role:"user",content:prompt}],currentPlayers);
       const msg={role:"assistant",content:reply,id:Date.now(),player:"DM"};
       setMessages([msg]);
-      let imageUrl=await imagePromise;
-      const dmScenePrompt=parseTag(reply,"SCENE_IMAGE");
-      if(dmScenePrompt){const betterUrl=await generateImage(dmScenePrompt);if(betterUrl)imageUrl=betterUrl;}
-      if(imageUrl)setSceneImage(imageUrl);
-      setImageLoading(false);
+
+      // *** Speak immediately — don't wait for image ***
+      speak(reply);
+      setLoading(false);
+
+      // Process sheets + generate better scene image in background
       const sheetUpdates=parseAllSheets(reply);
       const newChars={};
       Object.entries(sheetUpdates).forEach(([pName,charData])=>{
@@ -485,13 +509,20 @@ export default function Game({session,character,onLeave}){
       const questUpdate=parseTag(reply,"QUEST_UPDATE");if(questUpdate)setQuests(questUpdate);
       const initUpdate=parseTag(reply,"INITIATIVE");if(initUpdate)setInitiative(initUpdate);
       const turnUpdate=parseTag(reply,"TURN");if(turnUpdate)setCurrentTurn(turnUpdate);
-      await persist([msg],newChars,questUpdate||quests,imageUrl,initUpdate||initiative,turnUpdate||currentTurn,currentPlayers);
-      speak(reply);
+
+      // Generate DM's specific scene image in background
+      const dmScenePrompt=parseTag(reply,"SCENE_IMAGE");
+      let finalImageUrl=null;
+      if(dmScenePrompt){
+        finalImageUrl=await generateImage(dmScenePrompt);
+        if(finalImageUrl)setSceneImage(finalImageUrl);
+      }
+
+      await persist([msg],newChars,questUpdate||quests,finalImageUrl||null,initUpdate||initiative,turnUpdate||currentTurn,currentPlayers);
     }catch(e){
-      console.error("Launch error:",e);setImageLoading(false);
+      console.error("Launch error:",e);setImageLoading(false);setLoading(false);
       setMessages([{role:"assistant",content:"Error starting campaign: "+e.message,id:Date.now()}]);
     }
-    setLoading(false);
   };
 
   const send=async(text)=>{
@@ -504,17 +535,24 @@ export default function Game({session,character,onLeave}){
       const dmMsg={role:"assistant",content:reply,id:Date.now()+1,player:"DM"};
       const newMsgs=[...history,dmMsg];
       setMessages(newMsgs);
+
       const rollReq=parseRollRequest(reply);
       if(rollReq)setPendingRoll(rollReq);
       else setPendingRoll(null);
+
+      // *** Speak immediately — image generates in background ***
       speak(reply);
-      const{newChars,newQuests,newImage,newInit,newTurn}=await processDMReply(reply,characters,quests,initiative,currentTurn,sceneImage,players);
-      await persist(newMsgs,newChars,newQuests,newImage,newInit,newTurn,players);
-    }catch(e){setMessages(p=>[...p,{role:"assistant",content:"Error: "+e.message,id:Date.now()+1}]);}
-    setLoading(false);
+      setLoading(false);
+
+      // Process tags + image in background (non-blocking)
+      const{newChars,newQuests,newInit,newTurn}=await processDMReply(reply,characters,quests,initiative,currentTurn,sceneImage,players);
+      await persist(newMsgs,newChars,newQuests,sceneImage,newInit,newTurn,players);
+    }catch(e){
+      setMessages(p=>[...p,{role:"assistant",content:"Error: "+e.message,id:Date.now()+1}]);
+      setLoading(false);
+    }
   };
 
-  // DM-requested roll completed
   const handleDMRollResult=({die,roll,modifier,total,isCrit,isFail})=>{
     setPendingRoll(null);
     const modStr=modifier!==0?` (${roll} ${modifier>=0?"+":"-"} ${Math.abs(modifier)} = ${total})`:"";
@@ -524,7 +562,6 @@ export default function Game({session,character,onLeave}){
     send(msg);
   };
 
-  // Free roll (player-initiated, just logs to chat)
   const handleFreeRoll=({die,roll,modifier,total,isCrit,isFail})=>{
     setShowFreeRoll(false);
     let msg=`${playerName} rolled d${die}: ${roll}`;
@@ -534,7 +571,13 @@ export default function Game({session,character,onLeave}){
     send(msg);
   };
 
-  // Build myChar
+  const getPendingModifier=()=>{
+    if(!pendingRoll)return 0;
+    const key=(pendingRoll.ability||"").toUpperCase();
+    const score=(myChar.stats||{})[key]||10;
+    return Math.floor((score-10)/2);
+  };
+
   const myCharSheet=characters[playerName]||{};
   const myChar={
     ...character,...myCharSheet,
@@ -547,15 +590,6 @@ export default function Game({session,character,onLeave}){
     inventory:(myCharSheet.inventory&&myCharSheet.inventory.length>0)?myCharSheet.inventory:(character?.inventory||[]),
     hp:myCharSheet.hp!==null&&myCharSheet.hp!==undefined?myCharSheet.hp:character?.hp,
     maxHp:myCharSheet.maxHp||character?.maxHp,ac:myCharSheet.ac||character?.ac,level:myCharSheet.level||character?.level||1,
-  };
-
-  // Compute pending roll modifier from character sheet
-  const getPendingModifier=()=>{
-    if(!pendingRoll)return 0;
-    const abilityMap={STR:"STR",DEX:"DEX",CON:"CON",INT:"INT",WIS:"WIS",CHA:"CHA"};
-    const key=abilityMap[(pendingRoll.ability||"").toUpperCase()];
-    const score=(myChar.stats||{})[key]||10;
-    return Math.floor((score-10)/2);
   };
 
   const lastDM=[...messages].reverse().find(m=>m.role==="assistant");
@@ -627,12 +661,13 @@ export default function Game({session,character,onLeave}){
 
       {(sceneImage||imageLoading)&&(
         <div style={{position:"relative",zIndex:5,maxWidth:"880px",width:"100%",margin:"0 auto",padding:"10px 16px 0"}}>
-          {imageLoading
+          {imageLoading&&!sceneImage
             ?<div style={{width:"100%",height:"200px",background:"rgba(20,10,5,.6)",borderRadius:"10px",border:"1px solid rgba(200,148,58,.15)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"10px",color:"#4a3020",fontFamily:"'Cinzel',serif",fontSize:"11px",letterSpacing:"2px"}}>
                 <div style={{fontSize:"28px",animation:"breathe 1.5s infinite"}}>🖼️</div>PAINTING THE SCENE...
               </div>
             :<div style={{position:"relative",cursor:"pointer"}} onClick={()=>setLightbox(sceneImage)}>
                 <img src={sceneImage} alt="Scene" style={{width:"100%",maxHeight:"280px",objectFit:"cover",borderRadius:"10px",border:"1px solid rgba(200,148,58,.25)",animation:"imgfade .8s ease",boxShadow:"0 4px 24px rgba(0,0,0,.8)",display:"block"}}/>
+                {imageLoading&&<div style={{position:"absolute",bottom:"8px",left:"10px",background:"rgba(0,0,0,.7)",color:"#c8943a",fontFamily:"'Cinzel',serif",fontSize:"9px",letterSpacing:"1px",padding:"3px 8px",borderRadius:"10px",animation:"breathe 1s infinite"}}>🖼️ UPDATING...</div>}
                 <div style={{position:"absolute",bottom:"8px",right:"10px",background:"rgba(0,0,0,.6)",color:"rgba(212,170,60,.7)",fontFamily:"'Cinzel',serif",fontSize:"9px",letterSpacing:"1px",padding:"3px 8px",borderRadius:"10px"}}>🔍 CLICK TO EXPAND</div>
               </div>
           }
@@ -709,7 +744,6 @@ export default function Game({session,character,onLeave}){
         {isHost?(
           <div style={{maxWidth:"880px",margin:"0 auto"}}>
             {pendingRoll?(
-              // DM-requested roll: animated roller locked to correct die + modifier
               <DiceRollerInline
                 onRoll={handleDMRollResult}
                 onClose={null}
@@ -722,8 +756,7 @@ export default function Game({session,character,onLeave}){
               <div style={{display:"flex",gap:7,alignItems:"flex-end"}}>
                 <button onClick={startListening} style={{width:40,height:40,borderRadius:"50%",flexShrink:0,background:listening?"radial-gradient(circle,#8b0000,#4a0000)":"radial-gradient(circle,#2a1500,#100a00)",border:"2px solid "+(listening?"#ff4040":"#6a4010"),color:listening?"#ff8080":"#c8943a",fontSize:14,cursor:"pointer",animation:listening?"lpulse 1s infinite":"none",display:"flex",alignItems:"center",justifyContent:"center"}}>{listening?"🔴":"🎤"}</button>
                 <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send(input);}}} placeholder={listening?"🎤 Listening...":"Type your action... (Enter to send)"} rows={2} style={{flex:1,background:"rgba(12,6,2,.93)",border:"1px solid rgba(200,148,58,.18)",borderRadius:8,padding:"8px 12px",color:"#e8d5a3",fontSize:14,resize:"none",fontFamily:"'Crimson Text',Georgia,serif",lineHeight:1.5}}/>
-                {/* 🎲 repurposed as Free Roll */}
-                <button onClick={()=>setShowFreeRoll(true)} title="Free Roll — roll any die" style={{width:40,height:40,borderRadius:"50%",flexShrink:0,background:"radial-gradient(circle,#18082a,#080414)",border:"2px solid #6a4a9a",color:"#b080ef",fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>🎲</button>
+                <button onClick={()=>setShowFreeRoll(true)} title="Free Roll" style={{width:40,height:40,borderRadius:"50%",flexShrink:0,background:"radial-gradient(circle,#18082a,#080414)",border:"2px solid #6a4a9a",color:"#b080ef",fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>🎲</button>
                 <button onClick={()=>send(input)} disabled={loading||!input.trim()} style={{width:40,height:40,borderRadius:"50%",flexShrink:0,background:(loading||!input.trim())?"radial-gradient(circle,#111,#080808)":"radial-gradient(circle,#5a3a00,#2a1800)",border:"2px solid "+((loading||!input.trim())?"#181818":"#d4aa3c"),color:(loading||!input.trim())?"#202020":"#f4c842",fontSize:16,cursor:(loading||!input.trim())?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",animation:(!loading&&input.trim())?"glow 2s infinite":"none"}}>⚡</button>
               </div>
             )}
@@ -751,7 +784,6 @@ export default function Game({session,character,onLeave}){
         )}
       </footer>
 
-      {/* Free Roll modal */}
       {showFreeRoll&&<DiceRollerInline onRoll={handleFreeRoll} onClose={()=>setShowFreeRoll(false)} freeRoll={true}/>}
       {showSheet&&<CharacterSheet character={myChar} playerName={playerName} onClose={()=>setShowSheet(false)}/>}
       {showMap&&<MapView players={players} characters={characters} mapData={null} onClose={()=>setShowMap(false)}/>}
