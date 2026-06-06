@@ -1,6 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from "react";
 import { supabase } from "./supabase";
-import DiceRoller from "./DiceRoller";
 import CharacterSheet from "./CharacterSheet";
 import MapView from "./MapView";
 
@@ -105,14 +104,12 @@ function parseAllSheets(text){
   return updates;
 }
 
-// Parse a ROLL_REQUEST tag from DM text
 function parseRollRequest(text){
   const m=text.match(/<ROLL_REQUEST>([\s\S]*?)<\/ROLL_REQUEST>/);
   if(!m)return null;
   try{return JSON.parse(m[1].trim());}catch{return null;}
 }
 
-// Pre-fetch TTS chunks — fetches chunk[i+1] while chunk[i] plays, eliminating gaps
 function chunkText(text){
   const sentences=text.match(/[^.!?]+[.!?]+[\s]*/g)||[text];
   const chunks=[];let cur="";
@@ -123,6 +120,8 @@ function chunkText(text){
   if(cur.trim())chunks.push(cur.trim());
   return chunks.length?chunks:[text];
 }
+
+function rollDie(sides){return Math.floor(Math.random()*sides)+1;}
 
 function classEmoji(cls){const map={Fighter:"⚔️",Wizard:"🔮",Rogue:"🗡️",Cleric:"✨",Ranger:"🏹",Paladin:"🛡️",Bard:"🎭",Druid:"🌿",Barbarian:"💢",Monk:"👊",Sorcerer:"⚡",Warlock:"👁️"};return map[cls]||"⚔️";}
 function ctrlBtn(active,bc,c){return{background:active?"rgba(212,170,60,.12)":"rgba(24,12,3,.6)",border:"1px solid "+(bc||(active?"#c8943a":"rgba(200,148,58,.15)")),color:c||(active?"#f4c842":"#6a4020"),borderRadius:"16px",padding:"4px 11px",fontSize:"11px",cursor:"pointer",fontFamily:"'Cinzel',serif",letterSpacing:"1px",transition:"all .2s"};}
@@ -143,34 +142,104 @@ function PlayerCard({p,isMe,isTurn,initiative,onClick}){
   );
 }
 
-// Dice panel shown when DM requests a roll — blocks input until player rolls
-function RollPanel({rollRequest,character,onSubmit}){
-  const abilityMap={STR:"strength",DEX:"dexterity",CON:"constitution",INT:"intelligence",WIS:"wisdom",CHA:"charisma"};
-  const getModifier=(score)=>Math.floor(((score||10)-10)/2);
-  const sides=parseInt((rollRequest.die||"d20").replace("d",""))||20;
-  const abilityKey=abilityMap[(rollRequest.ability||"").toUpperCase()]||null;
-  const abilityScore=abilityKey?((character?.stats||{})[rollRequest.ability?.toUpperCase()]||10):10;
-  const modifier=abilityKey?getModifier(abilityScore):0;
+// ─── Animated Dice Roller (inline, used for both DM-requested and free rolls) ─
+const DICE_SIDES=[4,6,8,10,12,20,100];
 
-  const handleRoll=()=>{
-    const raw=Math.floor(Math.random()*sides)+1;
-    const total=raw+modifier;
-    const modStr=modifier>=0?`+ ${modifier}`:`- ${Math.abs(modifier)}`;
-    const breakdown=modifier!==0?`${raw} ${modStr} ${rollRequest.ability} = ${total}`:`${raw}`;
-    onSubmit(total,breakdown,raw===sides,raw===1);
+function DiceRollerInline({onRoll,onClose,lockedDie,lockedModifier,lockedLabel,freeRoll}){
+  const[selected,setSelected]=useState(lockedDie||20);
+  const[modifier,setModifier]=useState(lockedModifier||0);
+  const[rolling,setRolling]=useState(false);
+  const[result,setResult]=useState(null);
+  const[display,setDisplay]=useState(null);
+
+  const roll=()=>{
+    if(rolling)return;
+    setRolling(true);setResult(null);
+    let count=0;
+    const interval=setInterval(()=>{
+      setDisplay(rollDie(selected));
+      count++;
+      if(count>14){
+        clearInterval(interval);
+        const final=rollDie(selected);
+        setDisplay(final);setResult(final);setRolling(false);
+        const total=final+Number(modifier);
+        const isCrit=selected===20&&final===20;
+        const isFail=selected===20&&final===1;
+        onRoll({die:selected,roll:final,modifier:Number(modifier),total,isCrit,isFail});
+      }
+    },55);
   };
 
+  const total=result!==null?result+Number(modifier):null;
+  const isCrit=selected===20&&result===20;
+  const isFail=selected===20&&result===1;
+
   return(
-    <div style={{background:"linear-gradient(135deg,rgba(80,30,0,.95),rgba(40,10,0,.95))",border:"2px solid #c8943a",borderRadius:"12px",padding:"18px 20px",margin:"8px 0",textAlign:"center",animation:"fadeUp .3s ease"}}>
-      <div style={{fontFamily:"'Cinzel',serif",fontSize:"10px",color:"#8a6030",letterSpacing:"2px",marginBottom:"8px"}}>🎲 ROLL REQUIRED</div>
-      {rollRequest.flavor&&<div style={{fontStyle:"italic",color:"#c9a96e",fontSize:"14px",marginBottom:"10px",fontFamily:"'Crimson Text',serif"}}>"{rollRequest.flavor}"</div>}
-      <div style={{color:"#e8d5a3",fontSize:"15px",marginBottom:"14px",fontFamily:"'Crimson Text',serif"}}>
-        Roll a <strong style={{color:"#f4c842"}}>{rollRequest.die}</strong> for <strong style={{color:"#f4c842"}}>{rollRequest.skill}</strong>
-        {modifier!==0&&<span style={{color:"#c8943a"}}> ({modifier>=0?"+":""}{modifier} {rollRequest.ability})</span>}
+    <div style={{position:"fixed",inset:0,background:"rgba(0,0,0,.88)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:1000,backdropFilter:"blur(6px)"}}>
+      <div style={{background:"linear-gradient(135deg,rgba(28,13,4,.99),rgba(14,7,22,.99))",border:"1px solid rgba(212,170,60,.5)",borderRadius:"20px",padding:"28px",width:"320px",textAlign:"center",boxShadow:"0 0 60px rgba(0,0,0,.9),0 0 30px rgba(100,60,0,.3)"}}>
+
+        {/* Header */}
+        <div style={{fontFamily:"'Cinzel',serif",color:"#f4c842",fontSize:"13px",letterSpacing:"3px",marginBottom:"6px"}}>
+          {freeRoll?"🎲 FREE ROLL":"🎲 ROLL REQUIRED"}
+        </div>
+        {lockedLabel&&<div style={{fontStyle:"italic",color:"#c9a96e",fontSize:"13px",fontFamily:"'Crimson Text',serif",marginBottom:"14px"}}>"{lockedLabel}"</div>}
+
+        {/* Die selector — only show in free roll mode */}
+        {freeRoll&&(
+          <div style={{display:"flex",gap:"6px",justifyContent:"center",flexWrap:"wrap",marginBottom:"16px"}}>
+            {DICE_SIDES.map(d=>(
+              <button key={d} onClick={()=>{setSelected(d);setResult(null);}} style={{width:"40px",height:"40px",borderRadius:"8px",background:selected===d?"linear-gradient(135deg,#5a3a00,#3a2000)":"rgba(20,10,5,.8)",border:"1px solid "+(selected===d?"#c8943a":"rgba(200,148,58,.2)"),color:selected===d?"#f4c842":"#8a6040",fontFamily:"'Cinzel',serif",fontSize:"10px",cursor:"pointer",transition:"all .15s"}}>d{d}</button>
+            ))}
+          </div>
+        )}
+        {/* In DM-requested mode, just show which die is locked */}
+        {!freeRoll&&(
+          <div style={{marginBottom:"14px",color:"#e8d5a3",fontFamily:"'Crimson Text',serif",fontSize:"14px"}}>
+            Roll a <strong style={{color:"#f4c842"}}>{selected===20?"d20":"d"+selected}</strong>
+            {modifier!==0&&<span style={{color:"#c8943a"}}> ({modifier>=0?"+":""}{modifier} modifier)</span>}
+          </div>
+        )}
+
+        {/* Animated die face */}
+        <div style={{width:"110px",height:"110px",margin:"0 auto 16px",background:rolling?"radial-gradient(circle,#5a3a00,#2a1500)":(isCrit?"radial-gradient(circle,#1a4a1a,#0a2a0a)":isFail?"radial-gradient(circle,#4a1a1a,#2a0a0a)":"radial-gradient(circle,#3a2500,#1a1000)"),border:"2px solid "+(isCrit?"#60ff60":isFail?"#ff6060":"#c8943a"),borderRadius:"14px",display:"flex",alignItems:"center",justifyContent:"center",fontSize:display!==null?"50px":"24px",color:isCrit?"#60ff60":isFail?"#ff6060":"#f4c842",fontFamily:"'Cinzel',serif",fontWeight:700,boxShadow:rolling?"0 0 30px rgba(200,148,58,.7)":(isCrit?"0 0 30px rgba(60,255,60,.5)":isFail?"0 0 30px rgba(255,60,60,.5)":"none"),transition:"background .1s,box-shadow .1s",animation:rolling?"dicespin .15s linear infinite":"none"}}>
+          {display!==null?display:"d"+selected}
+        </div>
+
+        {/* Result line */}
+        {result!==null&&(
+          <div style={{marginBottom:"12px"}}>
+            {isCrit&&<div style={{color:"#60ff60",fontFamily:"'Cinzel',serif",fontSize:"12px",letterSpacing:"2px",marginBottom:"4px"}}>⚡ NATURAL 20! CRITICAL HIT!</div>}
+            {isFail&&<div style={{color:"#ff6060",fontFamily:"'Cinzel',serif",fontSize:"12px",letterSpacing:"2px",marginBottom:"4px"}}>💀 NATURAL 1! CRITICAL FAIL!</div>}
+            {modifier!==0&&(
+              <div style={{color:"#c8a060",fontSize:"14px",fontFamily:"'Crimson Text',serif"}}>
+                {result} {modifier>=0?"+":""}{modifier} = <strong style={{color:"#f4c842",fontSize:"18px"}}>{total}</strong>
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Modifier row — only in free roll mode */}
+        {freeRoll&&(
+          <div style={{display:"flex",alignItems:"center",gap:"8px",justifyContent:"center",marginBottom:"16px"}}>
+            <span style={{color:"#8a6040",fontFamily:"'Cinzel',serif",fontSize:"10px",letterSpacing:"1px"}}>MODIFIER</span>
+            <button onClick={()=>setModifier(m=>m-1)} style={{width:"26px",height:"26px",borderRadius:"6px",background:"rgba(20,10,5,.8)",border:"1px solid rgba(200,148,58,.2)",color:"#c8943a",cursor:"pointer",fontSize:"16px"}}>−</button>
+            <span style={{color:"#f4c842",fontFamily:"'Cinzel',serif",fontSize:"15px",minWidth:"28px",textAlign:"center"}}>{modifier>=0?"+":""}{modifier}</span>
+            <button onClick={()=>setModifier(m=>m+1)} style={{width:"26px",height:"26px",borderRadius:"6px",background:"rgba(20,10,5,.8)",border:"1px solid rgba(200,148,58,.2)",color:"#c8943a",cursor:"pointer",fontSize:"16px"}}>+</button>
+          </div>
+        )}
+
+        <style>{`@keyframes dicespin{0%{transform:rotate(0deg) scale(1)}25%{transform:rotate(8deg) scale(1.04)}75%{transform:rotate(-8deg) scale(1.04)}100%{transform:rotate(0deg) scale(1)}}`}</style>
+
+        <button onClick={roll} disabled={rolling} style={{width:"100%",padding:"11px",background:rolling?"rgba(30,15,5,.8)":"linear-gradient(135deg,#5a3a00,#3a2000)",border:"1px solid "+(rolling?"#4a3020":"#c8943a"),borderRadius:"8px",color:rolling?"#6a5030":"#f4c842",fontFamily:"'Cinzel',serif",fontSize:"13px",letterSpacing:"2px",cursor:rolling?"not-allowed":"pointer",marginBottom:"8px",transition:"all .2s"}}>
+          {rolling?"🎲 ROLLING...":"🎲 ROLL d"+selected}
+        </button>
+
+        {/* Only show close in free-roll mode; DM-requested rolls can't be skipped */}
+        {freeRoll&&(
+          <button onClick={onClose} style={{width:"100%",padding:"8px",background:"transparent",border:"1px solid rgba(200,148,58,.15)",borderRadius:"8px",color:"#5a4030",fontFamily:"'Cinzel',serif",fontSize:"10px",letterSpacing:"1px",cursor:"pointer"}}>CLOSE</button>
+        )}
       </div>
-      <button onClick={handleRoll} style={{background:"linear-gradient(135deg,#5a2000,#8b3a00)",border:"2px solid #c8943a",borderRadius:"8px",color:"#f4c842",fontFamily:"'Cinzel',serif",fontSize:"15px",letterSpacing:"2px",padding:"12px 36px",cursor:"pointer",transition:"all .2s",boxShadow:"0 0 20px rgba(200,148,58,.3)"}}>
-        🎲 ROLL {rollRequest.die.toUpperCase()}
-      </button>
     </div>
   );
 }
@@ -185,7 +254,7 @@ export default function Game({session,character,onLeave}){
   const[speaking,setSpeaking]=useState(false);
   const[listening,setListening]=useState(false);
   const[voiceOn,setVoiceOn]=useState(true);
-  const[showDice,setShowDice]=useState(false);
+  const[showFreeRoll,setShowFreeRoll]=useState(false); // free roll (🎲 button)
   const[showSheet,setShowSheet]=useState(false);
   const[showMap,setShowMap]=useState(false);
   const[lightbox,setLightbox]=useState(null); // eslint-disable-line
@@ -199,7 +268,7 @@ export default function Game({session,character,onLeave}){
   const[players,setPlayers]=useState({});
   const[initialized,setInitialized]=useState(false);
   const[started,setStarted]=useState(false);
-  const[pendingRoll,setPendingRoll]=useState(null); // dice pause system
+  const[pendingRoll,setPendingRoll]=useState(null); // DM-requested roll
 
   const bottomRef=useRef(null);
   const audioRef=useRef(null);
@@ -216,37 +285,24 @@ export default function Game({session,character,onLeave}){
       const{data}=await supabase.from("sessions").select("*").eq("code",sessionId).single();
       if(data){
         const newPlayers={...(data.players||{}),[playerName]:{
-          ...character,
-          playerName,
-          portrait:character?.portrait||null,
-          stats:character?.stats||{},
-          abilities:character?.abilities||[],
-          spells:character?.spells||[],
-          inventory:character?.inventory||[],
-          hp:character?.hp||null,
-          maxHp:character?.maxHp||null,
-          ac:character?.ac||null,
+          ...character,playerName,portrait:character?.portrait||null,
+          stats:character?.stats||{},abilities:character?.abilities||[],
+          spells:character?.spells||[],inventory:character?.inventory||[],
+          hp:character?.hp||null,maxHp:character?.maxHp||null,ac:character?.ac||null,
         }};
         await supabase.from("sessions").update({players:newPlayers}).eq("code",sessionId);
-        setMessages(data.messages||[]);
-        setCharacters(data.characters||{});
-        setQuests(data.quests||[]);
-        setSceneImage(data.scene_image||null);
-        setInitiative(data.initiative||[]);
-        setCurrentTurn(data.current_turn||null);
-        setPlayers(newPlayers);
-        setStarted(data.started||false);
+        setMessages(data.messages||[]);setCharacters(data.characters||{});
+        setQuests(data.quests||[]);setSceneImage(data.scene_image||null);
+        setInitiative(data.initiative||[]);setCurrentTurn(data.current_turn||null);
+        setPlayers(newPlayers);setStarted(data.started||false);
       }
     };
     init();
     const channel=supabase.channel("game:"+sessionId)
       .on("postgres_changes",{event:"UPDATE",schema:"public",table:"sessions",filter:"code=eq."+sessionId},(payload)=>{
         const d=payload.new;
-        setMessages(d.messages||[]);
-        setCharacters(d.characters||{});
-        setQuests(d.quests||[]);
-        setPlayers(d.players||{});
-        setStarted(d.started||false);
+        setMessages(d.messages||[]);setCharacters(d.characters||{});
+        setQuests(d.quests||[]);setPlayers(d.players||{});setStarted(d.started||false);
         if(d.scene_image)setSceneImage(d.scene_image);
         if(d.initiative)setInitiative(d.initiative);
         if(d.current_turn!==undefined)setCurrentTurn(d.current_turn);
@@ -255,10 +311,7 @@ export default function Game({session,character,onLeave}){
   },[sessionId,playerName]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(()=>{
-    if(isHost&&!initialized&&started){
-      setInitialized(true);
-      launch(players);
-    }
+    if(isHost&&!initialized&&started){setInitialized(true);launch(players);}
   },[isHost,initialized,started,players]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const persist=async(msgs,chars,qs,img,init,turn,pls)=>{
@@ -268,12 +321,10 @@ export default function Game({session,character,onLeave}){
   const startCampaign=async()=>{
     const{data}=await supabase.from("sessions").select("players").eq("code",sessionId).single();
     await supabase.from("sessions").update({started:true}).eq("code",sessionId);
-    setStarted(true);
-    setInitialized(true);
-    launch(data?.players||players);
+    setStarted(true);setInitialized(true);launch(data?.players||players);
   };
 
-  // --- TTS: pre-fetch pipeline (fetches next chunk while current plays) ---
+  // TTS pre-fetch pipeline
   const fetchTTSChunk=async(text)=>{
     const res=await fetch("/api/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text,voice:"fable"})});
     if(!res.ok)return null;
@@ -294,15 +345,12 @@ export default function Game({session,character,onLeave}){
     const t=cleanSpeech(text);if(!t)return false;
     const chunks=chunkText(t);
     stopRef.current=false;setSpeaking(true);
-
-    // Pre-fetch promises array — start fetching ahead of playback
     const fetches=chunks.map(()=>null);
     const prefetch=(i)=>{if(i<chunks.length)fetches[i]=fetchTTSChunk(chunks[i]);};
-    prefetch(0);prefetch(1); // kick off first two immediately
-
+    prefetch(0);prefetch(1);
     for(let i=0;i<chunks.length;i++){
       if(stopRef.current)break;
-      prefetch(i+2); // stay 2 ahead
+      prefetch(i+2);
       const url=await fetches[i];
       if(!url||stopRef.current)continue;
       await playAudioUrl(url);
@@ -369,10 +417,9 @@ export default function Game({session,character,onLeave}){
       const res=await fetch("/api/image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:fullPrompt,size:"1024x1024"})});
       const data=await res.json();
       if(res.ok&&data.url){setImageLoading(false);return data.url;}
-      else{console.error("Scene image failed:",data.error);}
+      else console.error("Scene image failed:",data.error);
     }catch(e){console.error("Scene image exception:",e.message);}
-    setImageLoading(false);
-    return null;
+    setImageLoading(false);return null;
   };
 
   const processDMReply=async(reply,prevChars,prevQuests,prevInit,prevTurn,currentImg,currentPlayers)=>{
@@ -382,8 +429,7 @@ export default function Game({session,character,onLeave}){
       const existing=prevChars[pName]||{};
       const reg=(currentPlayers||players||{})[pName]||{};
       const portrait=existing.portrait||reg.portrait||(pName===playerName?character?.portrait:null)||null;
-      newChars[pName]={
-        ...reg,...existing,...charData,portrait,
+      newChars[pName]={...reg,...existing,...charData,portrait,
         stats:(charData.stats&&Object.keys(charData.stats).length>0)?charData.stats:(existing.stats||reg.stats||{}),
         abilities:(charData.abilities&&charData.abilities.length>0)?charData.abilities:(existing.abilities||reg.abilities||[]),
         spells:(charData.spells&&charData.spells.length>0)?charData.spells:(existing.spells||reg.spells||[]),
@@ -392,10 +438,8 @@ export default function Game({session,character,onLeave}){
     });
     const questUpdate=parseTag(reply,"QUEST_UPDATE");
     const newQuests=questUpdate?[...prevQuests,...questUpdate.filter(q=>!prevQuests.find(eq=>eq.id===q.id))]:prevQuests;
-    const initUpdate=parseTag(reply,"INITIATIVE");
-    const newInit=initUpdate||prevInit;
-    const turnUpdate=parseTag(reply,"TURN");
-    const newTurn=turnUpdate||prevTurn;
+    const initUpdate=parseTag(reply,"INITIATIVE");const newInit=initUpdate||prevInit;
+    const turnUpdate=parseTag(reply,"TURN");const newTurn=turnUpdate||prevTurn;
     const imagePrompt=parseTag(reply,"SCENE_IMAGE");
     let newImage=currentImg;
     if(imagePrompt){const url=await generateImage(imagePrompt);if(url){setSceneImage(url);newImage=url;}}
@@ -438,23 +482,18 @@ export default function Game({session,character,onLeave}){
         };
       });
       if(Object.keys(newChars).length)setCharacters(newChars);
-      const questUpdate=parseTag(reply,"QUEST_UPDATE");
-      if(questUpdate)setQuests(questUpdate);
-      const initUpdate=parseTag(reply,"INITIATIVE");
-      if(initUpdate)setInitiative(initUpdate);
-      const turnUpdate=parseTag(reply,"TURN");
-      if(turnUpdate)setCurrentTurn(turnUpdate);
+      const questUpdate=parseTag(reply,"QUEST_UPDATE");if(questUpdate)setQuests(questUpdate);
+      const initUpdate=parseTag(reply,"INITIATIVE");if(initUpdate)setInitiative(initUpdate);
+      const turnUpdate=parseTag(reply,"TURN");if(turnUpdate)setCurrentTurn(turnUpdate);
       await persist([msg],newChars,questUpdate||quests,imageUrl,initUpdate||initiative,turnUpdate||currentTurn,currentPlayers);
       speak(reply);
     }catch(e){
-      console.error("Launch error:",e);
-      setImageLoading(false);
+      console.error("Launch error:",e);setImageLoading(false);
       setMessages([{role:"assistant",content:"Error starting campaign: "+e.message,id:Date.now()}]);
     }
     setLoading(false);
   };
 
-  // Send a message to Claude and handle the response
   const send=async(text)=>{
     if(!text.trim()||loading||!isHost)return;
     const userMsg={role:"user",content:text,id:Date.now(),player:playerName};
@@ -465,60 +504,58 @@ export default function Game({session,character,onLeave}){
       const dmMsg={role:"assistant",content:reply,id:Date.now()+1,player:"DM"};
       const newMsgs=[...history,dmMsg];
       setMessages(newMsgs);
-
-      // Check if DM wants a roll — if so, pause and show dice panel
       const rollReq=parseRollRequest(reply);
-      if(rollReq){
-        setPendingRoll(rollReq);
-        // Speak only the narration (tags are stripped by cleanSpeech/stripTags)
-        speak(reply);
-      } else {
-        setPendingRoll(null);
-        speak(reply);
-      }
-
+      if(rollReq)setPendingRoll(rollReq);
+      else setPendingRoll(null);
+      speak(reply);
       const{newChars,newQuests,newImage,newInit,newTurn}=await processDMReply(reply,characters,quests,initiative,currentTurn,sceneImage,players);
       await persist(newMsgs,newChars,newQuests,newImage,newInit,newTurn,players);
     }catch(e){setMessages(p=>[...p,{role:"assistant",content:"Error: "+e.message,id:Date.now()+1}]);}
     setLoading(false);
   };
 
-  // Called when player completes their roll from the dice panel
-  const handleRollResult=(total,breakdown,isCrit,isFail)=>{
+  // DM-requested roll completed
+  const handleDMRollResult=({die,roll,modifier,total,isCrit,isFail})=>{
     setPendingRoll(null);
-    let msg=`[ROLL_RESULT: ${total} (${breakdown})]`;
-    if(isCrit) msg+=" — NATURAL 20! CRITICAL HIT!";
-    if(isFail) msg+=" — NATURAL 1! CRITICAL FAIL!";
+    const modStr=modifier!==0?` (${roll} ${modifier>=0?"+":"-"} ${Math.abs(modifier)} = ${total})`:"";
+    let msg=`[ROLL_RESULT: ${total}${modStr}]`;
+    if(isCrit)msg+=" — NATURAL 20! CRITICAL HIT!";
+    if(isFail)msg+=" — NATURAL 1! CRITICAL FAIL!";
     send(msg);
   };
 
-  // Manual dice roller (from the 🎲 button) — still works as before
-  const handleDiceRoll=({die,roll,modifier,total,isCrit,isFail})=>{
-    setShowDice(false);
-    let msg=playerName+" rolled d"+die+": "+roll;
-    if(modifier!==0)msg+=(modifier>=0?" +":" ")+modifier+" = "+total;
-    if(isCrit)msg+=" NATURAL 20! CRITICAL HIT!";
-    if(isFail)msg+=" NATURAL 1! CRITICAL FAIL!";
+  // Free roll (player-initiated, just logs to chat)
+  const handleFreeRoll=({die,roll,modifier,total,isCrit,isFail})=>{
+    setShowFreeRoll(false);
+    let msg=`${playerName} rolled d${die}: ${roll}`;
+    if(modifier!==0)msg+=` ${modifier>=0?"+":""} ${modifier} = ${total}`;
+    if(isCrit)msg+=" — NATURAL 20! CRITICAL HIT!";
+    if(isFail)msg+=" — NATURAL 1! CRITICAL FAIL!";
     send(msg);
   };
 
+  // Build myChar
   const myCharSheet=characters[playerName]||{};
   const myChar={
     ...character,...myCharSheet,
-    portrait:myCharSheet.portrait||character?.portrait||null,
-    playerName,
-    name:myCharSheet.name||character?.name,
-    cls:myCharSheet.cls||character?.cls,
-    race:myCharSheet.race||character?.race,
-    backstory:character?.backstory,
+    portrait:myCharSheet.portrait||character?.portrait||null,playerName,
+    name:myCharSheet.name||character?.name,cls:myCharSheet.cls||character?.cls,
+    race:myCharSheet.race||character?.race,backstory:character?.backstory,
     stats:(myCharSheet.stats&&Object.keys(myCharSheet.stats).length>0)?myCharSheet.stats:(character?.stats||{}),
     abilities:(myCharSheet.abilities&&myCharSheet.abilities.length>0)?myCharSheet.abilities:(character?.abilities||[]),
     spells:(myCharSheet.spells&&myCharSheet.spells.length>0)?myCharSheet.spells:(character?.spells||[]),
     inventory:(myCharSheet.inventory&&myCharSheet.inventory.length>0)?myCharSheet.inventory:(character?.inventory||[]),
     hp:myCharSheet.hp!==null&&myCharSheet.hp!==undefined?myCharSheet.hp:character?.hp,
-    maxHp:myCharSheet.maxHp||character?.maxHp,
-    ac:myCharSheet.ac||character?.ac,
-    level:myCharSheet.level||character?.level||1,
+    maxHp:myCharSheet.maxHp||character?.maxHp,ac:myCharSheet.ac||character?.ac,level:myCharSheet.level||character?.level||1,
+  };
+
+  // Compute pending roll modifier from character sheet
+  const getPendingModifier=()=>{
+    if(!pendingRoll)return 0;
+    const abilityMap={STR:"STR",DEX:"DEX",CON:"CON",INT:"INT",WIS:"WIS",CHA:"CHA"};
+    const key=abilityMap[(pendingRoll.ability||"").toUpperCase()];
+    const score=(myChar.stats||{})[key]||10;
+    return Math.floor((score-10)/2);
   };
 
   const lastDM=[...messages].reverse().find(m=>m.role==="assistant");
@@ -526,7 +563,6 @@ export default function Game({session,character,onLeave}){
   const playerList=Object.values(players);
   const connectedCount=playerList.length;
 
-  // Waiting screen
   if(!started){
     return(
       <div style={{minHeight:"100vh",background:"radial-gradient(ellipse at 20% 0%,#1a0a2e 0%,#0d0d1a 40%,#000508 100%)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Crimson Text',Georgia,serif",color:"#e8d5a3"}}>
@@ -568,7 +604,6 @@ export default function Game({session,character,onLeave}){
       {particles.map(p=>(
         <div key={p.id} style={{position:"fixed",left:p.x+"%",top:p.y+"%",width:p.size+"px",height:p.size+"px",background:"radial-gradient(circle,#f4c842,#c97b2a)",borderRadius:"50%",opacity:.25,pointerEvents:"none",zIndex:0,boxShadow:"0 0 5px #f4c842",animation:"fp "+p.dur+"s "+p.delay+"s ease-in-out infinite alternate"}}/>
       ))}
-
       <style>{`
         @keyframes fp{from{transform:translateY(0) scale(1);opacity:.18}to{transform:translateY(-22px) scale(1.2);opacity:.44}}
         @keyframes glow{0%,100%{box-shadow:0 0 12px rgba(212,170,60,.25)}50%{box-shadow:0 0 26px rgba(212,170,60,.55)}}
@@ -594,8 +629,7 @@ export default function Game({session,character,onLeave}){
         <div style={{position:"relative",zIndex:5,maxWidth:"880px",width:"100%",margin:"0 auto",padding:"10px 16px 0"}}>
           {imageLoading
             ?<div style={{width:"100%",height:"200px",background:"rgba(20,10,5,.6)",borderRadius:"10px",border:"1px solid rgba(200,148,58,.15)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"10px",color:"#4a3020",fontFamily:"'Cinzel',serif",fontSize:"11px",letterSpacing:"2px"}}>
-                <div style={{fontSize:"28px",animation:"breathe 1.5s infinite"}}>🖼️</div>
-                PAINTING THE SCENE...
+                <div style={{fontSize:"28px",animation:"breathe 1.5s infinite"}}>🖼️</div>PAINTING THE SCENE...
               </div>
             :<div style={{position:"relative",cursor:"pointer"}} onClick={()=>setLightbox(sceneImage)}>
                 <img src={sceneImage} alt="Scene" style={{width:"100%",maxHeight:"280px",objectFit:"cover",borderRadius:"10px",border:"1px solid rgba(200,148,58,.25)",animation:"imgfade .8s ease",boxShadow:"0 4px 24px rgba(0,0,0,.8)",display:"block"}}/>
@@ -674,14 +708,22 @@ export default function Game({session,character,onLeave}){
       <footer style={{position:"relative",zIndex:10,background:"rgba(0,0,0,.78)",backdropFilter:"blur(14px)",borderTop:"1px solid rgba(212,170,60,.1)",padding:"9px 13px"}}>
         {isHost?(
           <div style={{maxWidth:"880px",margin:"0 auto"}}>
-            {/* Dice panel replaces input when a roll is pending */}
             {pendingRoll?(
-              <RollPanel rollRequest={pendingRoll} character={myChar} onSubmit={handleRollResult}/>
+              // DM-requested roll: animated roller locked to correct die + modifier
+              <DiceRollerInline
+                onRoll={handleDMRollResult}
+                onClose={null}
+                lockedDie={parseInt((pendingRoll.die||"d20").replace("d",""))||20}
+                lockedModifier={getPendingModifier()}
+                lockedLabel={pendingRoll.flavor}
+                freeRoll={false}
+              />
             ):(
               <div style={{display:"flex",gap:7,alignItems:"flex-end"}}>
                 <button onClick={startListening} style={{width:40,height:40,borderRadius:"50%",flexShrink:0,background:listening?"radial-gradient(circle,#8b0000,#4a0000)":"radial-gradient(circle,#2a1500,#100a00)",border:"2px solid "+(listening?"#ff4040":"#6a4010"),color:listening?"#ff8080":"#c8943a",fontSize:14,cursor:"pointer",animation:listening?"lpulse 1s infinite":"none",display:"flex",alignItems:"center",justifyContent:"center"}}>{listening?"🔴":"🎤"}</button>
                 <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send(input);}}} placeholder={listening?"🎤 Listening...":"Type your action... (Enter to send)"} rows={2} style={{flex:1,background:"rgba(12,6,2,.93)",border:"1px solid rgba(200,148,58,.18)",borderRadius:8,padding:"8px 12px",color:"#e8d5a3",fontSize:14,resize:"none",fontFamily:"'Crimson Text',Georgia,serif",lineHeight:1.5}}/>
-                <button onClick={()=>setShowDice(true)} style={{width:40,height:40,borderRadius:"50%",flexShrink:0,background:"radial-gradient(circle,#18082a,#080414)",border:"2px solid #6a4a9a",color:"#b080ef",fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>🎲</button>
+                {/* 🎲 repurposed as Free Roll */}
+                <button onClick={()=>setShowFreeRoll(true)} title="Free Roll — roll any die" style={{width:40,height:40,borderRadius:"50%",flexShrink:0,background:"radial-gradient(circle,#18082a,#080414)",border:"2px solid #6a4a9a",color:"#b080ef",fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>🎲</button>
                 <button onClick={()=>send(input)} disabled={loading||!input.trim()} style={{width:40,height:40,borderRadius:"50%",flexShrink:0,background:(loading||!input.trim())?"radial-gradient(circle,#111,#080808)":"radial-gradient(circle,#5a3a00,#2a1800)",border:"2px solid "+((loading||!input.trim())?"#181818":"#d4aa3c"),color:(loading||!input.trim())?"#202020":"#f4c842",fontSize:16,cursor:(loading||!input.trim())?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",animation:(!loading&&input.trim())?"glow 2s infinite":"none"}}>⚡</button>
               </div>
             )}
@@ -709,7 +751,8 @@ export default function Game({session,character,onLeave}){
         )}
       </footer>
 
-      {showDice&&<DiceRoller onRoll={handleDiceRoll} onClose={()=>setShowDice(false)}/>}
+      {/* Free Roll modal */}
+      {showFreeRoll&&<DiceRollerInline onRoll={handleFreeRoll} onClose={()=>setShowFreeRoll(false)} freeRoll={true}/>}
       {showSheet&&<CharacterSheet character={myChar} playerName={playerName} onClose={()=>setShowSheet(false)}/>}
       {showMap&&<MapView players={players} characters={characters} mapData={null} onClose={()=>setShowMap(false)}/>}
       {lightbox&&(
