@@ -78,24 +78,17 @@ export default function CharacterCreation({ playerName, onDone }) {
     let portraitUrl = null;
     try {
       const portraitPrompt = "Fantasy D&D character art, full body portrait, " + race + " " + cls + " named " + (charName||playerName) + ". Physical appearance: " + appearance + ". Style: dramatic painterly fantasy illustration, cinematic lighting, detailed armor and costume appropriate for a " + cls + ", heroic pose, dark atmospheric background, high detail.";
-      const pRes = await fetch("/api/image", {
-        method: "POST",
-        headers: {"Content-Type": "application/json"},
-        body: JSON.stringify({prompt: portraitPrompt, size: "1024x1024"})
-      });
-      const pData = await pRes.json();
-      if (pRes.ok && pData.url) {
-        portraitUrl = pData.url;
-        console.log("Portrait generated:", portraitUrl);
-      } else {
-        console.error("Portrait generation failed:", pData.error || pData);
-        setGenStatus("⚠️ Portrait failed: " + (pData.error || "Unknown error") + " — continuing without portrait");
-        await new Promise(r => setTimeout(r, 2000));
-      }
+      const encoded = encodeURIComponent(portraitPrompt.substring(0, 500));
+      const seed = Math.floor(Math.random() * 999999);
+      portraitUrl = "https://image.pollinations.ai/prompt/" + encoded + "?width=1024&height=1024&seed=" + seed + "&model=flux&nologo=true&enhance=true";
+      // Pre-fetch to ensure it loads
+      setGenStatus("🎨 Rendering your portrait...");
+      await fetch(portraitUrl);
+      console.log("Portrait URL ready:", portraitUrl);
     } catch(e) {
       console.error("Portrait exception:", e);
       setGenStatus("⚠️ Portrait error — continuing...");
-      await new Promise(r => setTimeout(r, 1500));
+      await new Promise(r => setTimeout(r, 1000));
     }
 
     setGenStatus("⚔️ Finalizing your character...");
