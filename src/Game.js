@@ -13,13 +13,48 @@ function buildSystemPrompt(setting, personality, players, playerCount) {
     "Horror":"terrifying world of dread, eldritch horrors, and survival against darkness",
   }[setting]||"classic fantasy world";
   const personalityDesc={
-    "Epic & Dramatic":"You speak with gravitas. Every moment feels legendary.",
+    "Epic & Dramatic":"You speak with gravitas and drama. Every moment feels legendary.",
     "Funny & Casual":"You are witty and fun, cracking jokes while telling a great story.",
     "Gritty & Serious":"You are serious and immersive. The world feels real and consequential.",
     "Mysterious & Eerie":"You speak in evocative mysterious tones. Everything feels unsettling.",
   }[personality]||"You are dramatic and engaging.";
-  const playerList=players.map(p=>p.playerName+" playing "+(p.name||p.playerName)+" the "+(p.race||"")+" "+(p.cls||"")+" backstory: "+(p.backstory||"adventurer")).join("; ");
-  return "You are an expert DM for a "+settingDesc+" campaign for "+playerCount+" players. "+personalityDesc+"\nPlayers: "+(playerList||"unknown")+"\n\nRULES:\n1. Beginners - teach rules naturally\n2. Run everything - combat, NPCs, dice, world\n3. Track HP/stats/inventory for ALL characters\n4. Be forgiving and fun\n\nSTART: Welcome party by name referencing backstories, then open with an exciting scene. ALWAYS include a <SCENE_IMAGE> tag on your very first response.\n\nDICE: Say Roll a d20! then report [Rolled 14 + 3 STR = 17 SUCCESS]\nAlways state all HP after combat.\n\nAt END of response output tags when relevant:\n<SHEET_UPDATE>{\"playerName\":\"name\",\"character\":{\"name\":\"CharName\",\"cls\":\"Class\",\"race\":\"Race\",\"level\":1,\"hp\":12,\"maxHp\":12,\"ac\":18,\"stats\":{\"STR\":16,\"DEX\":10,\"CON\":14,\"INT\":10,\"WIS\":12,\"CHA\":14},\"abilities\":[{\"name\":\"Ability\",\"desc\":\"Description\"}],\"inventory\":[\"item1\",\"item2\"],\"spells\":[{\"name\":\"Spell\",\"level\":1,\"desc\":\"Description\"}]}}</SHEET_UPDATE>\n<SCENE_IMAGE>vivid 1-2 sentence visual description of current scene for image generation</SCENE_IMAGE>\n<QUEST_UPDATE>[{\"id\":\"q1\",\"title\":\"Quest Name\",\"desc\":\"Brief desc\",\"status\":\"active\"}]</QUEST_UPDATE>\n<INITIATIVE>[\"Player1\",\"Player2\",\"Enemy1\"]</INITIATIVE>\n<TURN>PlayerName</TURN>\n\nFORMATTING: **bold** key terms, *italics* atmosphere/NPC speech, # headers. NO tables. NO pipes.";
+  const playerList=players.map(p=>p.playerName+" playing "+(p.name||p.playerName)+" the "+(p.race||"")+" "+(p.cls||"")+" — backstory: "+(p.backstory||"adventurer")).join("; ");
+  return `You are an expert Dungeons & Dragons Dungeon Master running a ${settingDesc} campaign for ${playerCount} complete beginners. ${personalityDesc}
+
+Players: ${playerList||"unknown"}
+
+CORE RULES:
+1. Teach rules naturally as you go — never dump rules at once
+2. Run everything — combat, NPCs, dice rolls, world events
+3. Track HP, stats, inventory for ALL characters precisely
+4. Be forgiving and encouraging — beginners make mistakes
+5. Use every player's character name and reference their backstories constantly
+
+DICE: When a roll is needed say "Roll a d20!" then report: [Rolled 14 + 3 STR = 17 — SUCCESS!]
+Always state all character HP values after any combat.
+
+OPENING: Welcome all players by name, reference their specific backstories and classes, paint a vivid opening scene. ALWAYS include a <SCENE_IMAGE> tag on your FIRST response — this is mandatory.
+
+WHEN SCENE CHANGES: Any time players move to a new location or the environment changes significantly, include a new <SCENE_IMAGE> tag.
+
+OUTPUT THESE TAGS AT THE END OF YOUR RESPONSE (when relevant):
+
+Character sheet — output for EVERY player when you assign their stats at start, and whenever stats change:
+<SHEET_UPDATE>{"playerName":"Justin","character":{"name":"Oma","cls":"Paladin","race":"Drow","level":1,"hp":12,"maxHp":12,"ac":18,"stats":{"STR":16,"DEX":10,"CON":14,"INT":10,"WIS":12,"CHA":14},"abilities":[{"name":"Divine Sense","desc":"Detect celestial/fiend/undead within 60ft. Uses: 4/day"},{"name":"Lay on Hands","desc":"Heal up to 5 HP total per day by touch"}],"inventory":["Longsword","Shield","Chain Mail","Holy Symbol","5 GP"],"spells":[]}}</SHEET_UPDATE>
+
+Scene image — REQUIRED on first response, and on any location/scene change:
+<SCENE_IMAGE>vivid 1-2 sentence visual description of exactly what the players see right now</SCENE_IMAGE>
+
+Quests — when discovered or completed:
+<QUEST_UPDATE>[{"id":"q1","title":"Quest Name","desc":"Brief description","status":"active"}]</QUEST_UPDATE>
+
+Combat initiative order:
+<INITIATIVE>["Player1","Player2","EnemyA"]</INITIATIVE>
+
+Current turn in combat:
+<TURN>PlayerName</TURN>
+
+FORMATTING: **bold** for key terms and names. *italics* for atmosphere and NPC speech. # for chapter/section headers. NO markdown tables. NO pipe characters.`;
 }
 
 const TAGS=["SHEET_UPDATE","SCENE_IMAGE","QUEST_UPDATE","INITIATIVE","TURN"];
@@ -58,12 +93,11 @@ function parseAllSheets(text){
   return updates;
 }
 
-// Split at sentence boundaries but join short sentences to avoid tiny pauses
 function chunkText(text){
   const sentences=text.match(/[^.!?]+[.!?]+[\s]*/g)||[text];
   const chunks=[];let cur="";
   for(const s of sentences){
-    if((cur+s).length>600&&cur.length>100){chunks.push(cur.trim());cur=s;}
+    if((cur+s).length>700&&cur.length>150){chunks.push(cur.trim());cur=s;}
     else cur+=s;
   }
   if(cur.trim())chunks.push(cur.trim());
@@ -78,7 +112,7 @@ function PlayerCard({p,isMe,isTurn,initiative,onClick}){
   const hpPct=p.hp!==undefined&&p.maxHp?Math.max(0,Math.min(100,(p.hp/p.maxHp)*100)):null;
   return(
     <div onClick={onClick} style={{width:"72px",flexShrink:0,borderRadius:"10px",cursor:onClick?"pointer":"default",background:isTurn?"linear-gradient(135deg,rgba(20,60,20,.9),rgba(10,40,10,.9))":isMe?"linear-gradient(135deg,rgba(40,20,5,.9),rgba(25,10,3,.9))":"linear-gradient(135deg,rgba(20,10,5,.7),rgba(12,6,3,.7))",border:"1px solid "+(isTurn?"#40c040":isMe?"#c8943a":"rgba(200,148,58,.12)"),padding:"6px",textAlign:"center",animation:isTurn?"turnpulse 1.5s infinite":"none",transition:"all .2s"}}>
-      <div style={{width:"48px",height:"48px",borderRadius:"8px",margin:"0 auto 4px",overflow:"hidden",background:"rgba(0,0,0,.4)",border:"1px solid rgba(200,148,58,.18)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"20px"}}>
+      <div style={{width:"48px",height:"48px",borderRadius:"8px",margin:"0 auto 4px",overflow:"hidden",background:"rgba(0,0,0,.4)",border:"1px solid rgba(200,148,58,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"20px"}}>
         {p.portrait?<img src={p.portrait} alt="" style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"top"}}/>:classEmoji(p.cls)}
       </div>
       <div style={{fontFamily:"'Cinzel',serif",fontSize:"8px",color:isTurn?"#80ff80":isMe?"#c8943a":"#7a5030",letterSpacing:"0.5px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name||p.playerName||"?"}</div>
@@ -111,6 +145,8 @@ export default function Game({session,character,onLeave}){
   const[currentTurn,setCurrentTurn]=useState(null);
   const[players,setPlayers]=useState({});
   const[initialized,setInitialized]=useState(false);
+  const[started,setStarted]=useState(false);
+  const[waitingMsg,setWaitingMsg]=useState("");
 
   const bottomRef=useRef(null);
   const audioRef=useRef(null);
@@ -126,7 +162,8 @@ export default function Game({session,character,onLeave}){
     const init=async()=>{
       const{data}=await supabase.from("sessions").select("*").eq("code",sessionId).single();
       if(data){
-        const newPlayers={...(data.players||{}),[playerName]:{...character,playerName}};
+        // Register this player with their portrait
+        const newPlayers={...(data.players||{}),[playerName]:{...character,playerName,portrait:character?.portrait||null}};
         await supabase.from("sessions").update({players:newPlayers}).eq("code",sessionId);
         setMessages(data.messages||[]);
         setCharacters(data.characters||{});
@@ -135,6 +172,7 @@ export default function Game({session,character,onLeave}){
         setInitiative(data.initiative||[]);
         setCurrentTurn(data.current_turn||null);
         setPlayers(newPlayers);
+        setStarted(data.started||false);
       }
     };
     init();
@@ -145,6 +183,7 @@ export default function Game({session,character,onLeave}){
         setCharacters(d.characters||{});
         setQuests(d.quests||[]);
         setPlayers(d.players||{});
+        setStarted(d.started||false);
         if(d.scene_image)setSceneImage(d.scene_image);
         if(d.initiative)setInitiative(d.initiative);
         if(d.current_turn!==undefined)setCurrentTurn(d.current_turn);
@@ -153,17 +192,23 @@ export default function Game({session,character,onLeave}){
   },[sessionId,playerName]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(()=>{
-    if(isHost&&!initialized){
+    if(isHost&&!initialized&&started){
       setInitialized(true);
-      setTimeout(async()=>{
-        const{data}=await supabase.from("sessions").select("messages,players").eq("code",sessionId).single();
-        if(!data?.messages?.length)launch(data?.players||{});
-      },1200);
+      launch(players);
     }
-  },[isHost,initialized]); // eslint-disable-line react-hooks/exhaustive-deps
+  },[isHost,initialized,started,players]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const persist=async(msgs,chars,qs,img,init,turn,pls)=>{
     await supabase.from("sessions").update({messages:msgs,characters:chars,quests:qs,scene_image:img,initiative:init,current_turn:turn,players:pls}).eq("code",sessionId);
+  };
+
+  const startCampaign=async()=>{
+    // Mark session as started so all clients know
+    const{data}=await supabase.from("sessions").select("players").eq("code",sessionId).single();
+    await supabase.from("sessions").update({started:true}).eq("code",sessionId);
+    setStarted(true);
+    setInitialized(true);
+    launch(data?.players||players);
   };
 
   const speakChunk=async(chunk)=>{
@@ -185,11 +230,7 @@ export default function Game({session,character,onLeave}){
     const t=cleanSpeech(text);if(!t)return false;
     const chunks=chunkText(t);
     stopRef.current=false;setSpeaking(true);
-    // Prefetch next chunk while playing current for seamless audio
-    for(let i=0;i<chunks.length;i++){
-      if(stopRef.current)break;
-      await speakChunk(chunks[i]);
-    }
+    for(let i=0;i<chunks.length;i++){if(stopRef.current)break;await speakChunk(chunks[i]);}
     setSpeaking(false);return true;
   },[]);
 
@@ -237,7 +278,7 @@ export default function Game({session,character,onLeave}){
 
   const askClaude=async(history,currentPlayers)=>{
     const playerArr=Object.values(currentPlayers||players);
-    const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-opus-4-5",max_tokens:1300,system:buildSystemPrompt(setting,personality,playerArr,playerCount||2),messages:history.map(m=>({role:m.role,content:m.content}))})});
+    const res=await fetch("/api/claude",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({model:"claude-opus-4-5",max_tokens:1400,system:buildSystemPrompt(setting,personality,playerArr,playerCount||2),messages:history.map(m=>({role:m.role,content:m.content}))})});
     if(!res.ok){const e=await res.json();throw new Error(e.error?.message||"Error "+res.status);}
     const data=await res.json();
     return data.content?.[0]?.text||"The DM ponders...";
@@ -246,32 +287,36 @@ export default function Game({session,character,onLeave}){
   const generateImage=async(prompt)=>{
     setImageLoading(true);
     try{
-      const res=await fetch("/api/image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:"Fantasy D&D scene, dramatic painterly illustration, cinematic lighting, high detail: "+prompt})});
+      const res=await fetch("/api/image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:"Fantasy D&D scene, dramatic painterly illustration, cinematic lighting, highly detailed: "+prompt})});
       if(res.ok){const d=await res.json();setImageLoading(false);return d.url;}
     }catch(e){console.error("Image error",e);}
     setImageLoading(false);return null;
   };
 
-  const processDMReply=async(reply,prevChars,prevQuests,prevInit,prevTurn,currentImg)=>{
+  const processDMReply=async(reply,prevChars,prevQuests,prevInit,prevTurn,currentImg,currentPlayers)=>{
     const sheetUpdates=parseAllSheets(reply);
-    // Preserve portrait when updating character sheet
     const newChars={...prevChars};
     Object.entries(sheetUpdates).forEach(([pName,charData])=>{
-      const existingPortrait=prevChars[pName]?.portrait||(players[pName]?.portrait);
-      newChars[pName]={...charData,portrait:charData.portrait||existingPortrait};
+      // Always preserve portrait from player registration
+      const portrait=prevChars[pName]?.portrait||(currentPlayers||players)[pName]?.portrait||character?.portrait||null;
+      newChars[pName]={...charData,portrait};
     });
+
     const questUpdate=parseTag(reply,"QUEST_UPDATE");
     const newQuests=questUpdate?[...prevQuests,...questUpdate.filter(q=>!prevQuests.find(eq=>eq.id===q.id))]:prevQuests;
     const initUpdate=parseTag(reply,"INITIATIVE");
     const newInit=initUpdate||prevInit;
     const turnUpdate=parseTag(reply,"TURN");
     const newTurn=turnUpdate||prevTurn;
+
+    // Generate scene image
     const imagePrompt=parseTag(reply,"SCENE_IMAGE");
     let newImage=currentImg;
     if(imagePrompt){
       const url=await generateImage(imagePrompt);
       if(url){setSceneImage(url);newImage=url;}
     }
+
     if(Object.keys(sheetUpdates).length)setCharacters(newChars);
     if(questUpdate)setQuests(newQuests);
     if(initUpdate)setInitiative(newInit);
@@ -282,10 +327,12 @@ export default function Game({session,character,onLeave}){
   const launch=async(currentPlayers)=>{
     setLoading(true);
     try{
-      const reply=await askClaude([{role:"user",content:"Begin! Welcome the party by name referencing their classes and backstories. Launch into an exciting opening scene. Include a SCENE_IMAGE tag describing the opening location."}],currentPlayers);
+      const playerArr=Object.values(currentPlayers||{});
+      const prompt="The party has assembled. Welcome each player by name, describe their appearance based on their class and race, reference their backstories specifically. Then paint a vivid and exciting opening scene. You MUST include a <SCENE_IMAGE> tag describing exactly what the players see. Also output <SHEET_UPDATE> for each player assigning their starting stats and equipment.";
+      const reply=await askClaude([{role:"user",content:prompt}],currentPlayers);
       const msg={role:"assistant",content:reply,id:Date.now(),player:"DM"};
       setMessages([msg]);
-      const{newChars,newQuests,newImage,newInit,newTurn}=await processDMReply(reply,{},quests,initiative,currentTurn,null);
+      const{newChars,newQuests,newImage,newInit,newTurn}=await processDMReply(reply,{},quests,initiative,currentTurn,null,currentPlayers);
       await persist([msg],newChars,newQuests,newImage,newInit,newTurn,currentPlayers);
       speak(reply);
     }catch(e){setMessages([{role:"assistant",content:"Error: "+e.message,id:Date.now()}]);}
@@ -302,7 +349,7 @@ export default function Game({session,character,onLeave}){
       const dmMsg={role:"assistant",content:reply,id:Date.now()+1,player:"DM"};
       const newMsgs=[...history,dmMsg];
       setMessages(newMsgs);
-      const{newChars,newQuests,newImage,newInit,newTurn}=await processDMReply(reply,characters,quests,initiative,currentTurn,sceneImage);
+      const{newChars,newQuests,newImage,newInit,newTurn}=await processDMReply(reply,characters,quests,initiative,currentTurn,sceneImage,players);
       await persist(newMsgs,newChars,newQuests,newImage,newInit,newTurn,players);
       speak(reply);
     }catch(e){setMessages(p=>[...p,{role:"assistant",content:"Error: "+e.message,id:Date.now()+1}]);}
@@ -318,11 +365,63 @@ export default function Game({session,character,onLeave}){
     send(msg);
   };
 
-  const myCharBase=characters[playerName]||{};
-  const myChar={...myCharBase,portrait:myCharBase.portrait||character?.portrait,playerName,name:myCharBase.name||character?.name,cls:myCharBase.cls||character?.cls,race:myCharBase.race||character?.race};
+  // Build my character merging sheet data + portrait from character creation
+  const myCharSheet=characters[playerName]||{};
+  const myChar={
+    ...myCharSheet,
+    portrait:myCharSheet.portrait||character?.portrait||null,
+    playerName,
+    name:myCharSheet.name||character?.name,
+    cls:myCharSheet.cls||character?.cls,
+    race:myCharSheet.race||character?.race,
+    backstory:character?.backstory,
+  };
+
   const lastDM=[...messages].reverse().find(m=>m.role==="assistant");
   const activeQuests=quests.filter(q=>q.status==="active");
   const playerList=Object.values(players);
+  const connectedCount=playerList.length;
+
+  // Waiting screen for non-started sessions
+  if(!started){
+    return(
+      <div style={{minHeight:"100vh",background:"radial-gradient(ellipse at 20% 0%,#1a0a2e 0%,#0d0d1a 40%,#000508 100%)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Crimson Text',Georgia,serif",color:"#e8d5a3"}}>
+        <div style={{background:"linear-gradient(135deg,rgba(28,13,4,.97),rgba(14,7,22,.97))",border:"1px solid rgba(212,170,60,.4)",borderRadius:"16px",padding:"36px",maxWidth:"480px",width:"100%",margin:"20px",textAlign:"center",boxShadow:"0 0 60px rgba(0,0,0,.8)"}}>
+          <div style={{fontSize:"48px",marginBottom:"16px",animation:"breathe 3s ease-in-out infinite"}}>🐉</div>
+          <div style={{fontFamily:"'Cinzel',serif",fontSize:"20px",fontWeight:700,background:"linear-gradient(135deg,#f4c842,#e8a020)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",letterSpacing:"3px",marginBottom:"8px"}}>WAITING FOR PARTY</div>
+          <div style={{color:"#6a5030",fontFamily:"'Cinzel',serif",fontSize:"10px",letterSpacing:"2px",marginBottom:"24px"}}>SESSION: {sessionId}</div>
+
+          {/* Connected players */}
+          <div style={{marginBottom:"20px"}}>
+            <div style={{fontFamily:"'Cinzel',serif",fontSize:"10px",color:"#7a5030",letterSpacing:"2px",marginBottom:"10px"}}>{connectedCount} / {playerCount} ADVENTURERS READY</div>
+            <div style={{display:"flex",gap:"8px",justifyContent:"center",flexWrap:"wrap"}}>
+              {playerList.map(p=>(
+                <div key={p.playerName} style={{padding:"6px 12px",borderRadius:"20px",background:"rgba(40,20,5,.6)",border:"1px solid rgba(200,148,58,.3)",color:"#c8943a",fontFamily:"'Cinzel',serif",fontSize:"11px"}}>
+                  {p.portrait&&<img src={p.portrait} alt="" style={{width:"20px",height:"20px",borderRadius:"50%",objectFit:"cover",marginRight:"6px",verticalAlign:"middle"}}/>}
+                  ✅ {p.name||p.playerName}
+                </div>
+              ))}
+              {Array.from({length:Math.max(0,playerCount-connectedCount)}).map((_,i)=>(
+                <div key={"w"+i} style={{padding:"6px 12px",borderRadius:"20px",background:"rgba(20,10,3,.4)",border:"1px dashed rgba(200,148,58,.15)",color:"#3a2510",fontFamily:"'Cinzel',serif",fontSize:"11px"}}>⏳ Waiting...</div>
+              ))}
+            </div>
+          </div>
+
+          <div style={{color:"#6a5030",fontSize:"14px",lineHeight:1.6,marginBottom:"20px",fontFamily:"'Crimson Text',serif"}}>
+            {isHost?"Once everyone has joined and created their character, start the adventure!":"Waiting for the host to start the campaign..."}
+          </div>
+
+          {isHost&&(
+            <button onClick={startCampaign} style={{width:"100%",padding:"14px",background:"linear-gradient(135deg,#5a3a00,#3a2000)",border:"1px solid #c8943a",borderRadius:"8px",color:"#f4c842",fontFamily:"'Cinzel',serif",fontSize:"14px",letterSpacing:"2px",cursor:"pointer",transition:"all .2s"}}>
+              ⚔️ START THE CAMPAIGN
+            </button>
+          )}
+          <div style={{color:"#3a2010",fontSize:"12px",marginTop:"12px",fontFamily:"'Cinzel',serif",letterSpacing:"1px"}}>Share code: <span style={{color:"#6a4020"}}>{sessionId}</span></div>
+        </div>
+        <style>{`@keyframes breathe{0%,100%{transform:scale(1)}50%{transform:scale(1.08)}}`}</style>
+      </div>
+    );
+  }
 
   return(
     <div style={{minHeight:"100vh",background:"radial-gradient(ellipse at 20% 0%,#1a0a2e 0%,#0d0d1a 40%,#000508 100%)",fontFamily:"'Palatino Linotype','Book Antiqua',Georgia,serif",display:"flex",flexDirection:"column",position:"relative",overflow:"hidden",color:"#e8d5a3"}}>
@@ -351,15 +450,17 @@ export default function Game({session,character,onLeave}){
         <div style={{fontSize:"9px",color:"#3a2015",letterSpacing:"2px",fontFamily:"'Cinzel',serif",marginTop:"2px"}}>{setting.toUpperCase()} · {playerCount} PLAYERS · CODE: <span style={{color:"#5a3515"}}>{sessionId}</span></div>
       </header>
 
+      {/* Scene image */}
       {(sceneImage||imageLoading)&&(
         <div style={{position:"relative",zIndex:5,maxWidth:"880px",width:"100%",margin:"0 auto",padding:"10px 16px 0"}}>
           {imageLoading
             ?<div style={{width:"100%",height:"130px",background:"rgba(20,10,5,.6)",borderRadius:"10px",border:"1px solid rgba(200,148,58,.15)",display:"flex",alignItems:"center",justifyContent:"center",color:"#4a3020",fontFamily:"'Cinzel',serif",fontSize:"11px",letterSpacing:"2px"}}>🖼️ PAINTING THE SCENE...</div>
-            :<img src={sceneImage} alt="Scene" style={{width:"100%",maxHeight:"200px",objectFit:"cover",borderRadius:"10px",border:"1px solid rgba(200,148,58,.22)",animation:"imgfade .8s ease",boxShadow:"0 4px 20px rgba(0,0,0,.7)"}}/>
+            :<img src={sceneImage} alt="Scene" style={{width:"100%",maxHeight:"220px",objectFit:"cover",borderRadius:"10px",border:"1px solid rgba(200,148,58,.22)",animation:"imgfade .8s ease",boxShadow:"0 4px 20px rgba(0,0,0,.7)",cursor:"pointer"}} onClick={()=>window.open(sceneImage,"_blank")}/>
           }
         </div>
       )}
 
+      {/* Messages */}
       <main style={{flex:1,overflowY:"auto",padding:"12px 16px",position:"relative",zIndex:5,maxWidth:"880px",width:"100%",margin:"0 auto"}}>
         {messages.map((msg,i)=>(
           <div key={msg.id||i} style={{animation:"fadeUp .35s ease forwards",marginBottom:"14px",display:"flex",justifyContent:msg.role==="user"?"flex-end":"flex-start"}}>
@@ -395,15 +496,17 @@ export default function Game({session,character,onLeave}){
         <div style={{display:"flex",gap:"7px",overflowX:"auto",paddingBottom:"2px"}}>
           <PlayerCard p={myChar} isMe={true} isTurn={currentTurn===playerName} initiative={initiative} onClick={()=>setShowSheet(true)}/>
           {playerList.filter(p=>p.playerName!==playerName).map(p=>{
-            const merged={...(characters[p.playerName]||{}),portrait:(characters[p.playerName]?.portrait||p.portrait),playerName:p.playerName,name:(characters[p.playerName]?.name||p.name),cls:(characters[p.playerName]?.cls||p.cls)};
+            const sheet=characters[p.playerName]||{};
+            const merged={...sheet,portrait:sheet.portrait||p.portrait||null,playerName:p.playerName,name:sheet.name||p.name,cls:sheet.cls||p.cls,race:sheet.race||p.race};
             return <PlayerCard key={p.playerName} p={merged} isMe={false} isTurn={currentTurn===p.playerName} initiative={initiative}/>;
           })}
-          {Array.from({length:Math.max(0,(playerCount||6)-playerList.length)}).map((_,i)=>(
+          {Array.from({length:Math.max(0,(playerCount||2)-playerList.length)}).map((_,i)=>(
             <div key={"e"+i} style={{width:"72px",flexShrink:0,height:"72px",borderRadius:"10px",background:"rgba(16,8,3,.3)",border:"1px dashed rgba(200,148,58,.07)",display:"flex",alignItems:"center",justifyContent:"center",color:"#1a0e04",fontFamily:"'Cinzel',serif",fontSize:"20px"}}>+</div>
           ))}
         </div>
       </div>
 
+      {/* Quests */}
       {showQuests&&activeQuests.length>0&&(
         <div style={{position:"relative",zIndex:10,maxWidth:"880px",width:"100%",margin:"0 auto",padding:"0 14px 5px"}}>
           <div style={{background:"rgba(14,7,2,.92)",border:"1px solid rgba(200,148,58,.16)",borderRadius:"8px",padding:"10px 12px"}}>
@@ -418,6 +521,7 @@ export default function Game({session,character,onLeave}){
         </div>
       )}
 
+      {/* Quick chips */}
       {isHost&&(
         <div style={{position:"relative",zIndex:10,maxWidth:"880px",width:"100%",margin:"0 auto",padding:"0 14px 4px",display:"flex",gap:5,flexWrap:"wrap"}}>
           {QUICK.map(q=>(
@@ -426,6 +530,7 @@ export default function Game({session,character,onLeave}){
         </div>
       )}
 
+      {/* Footer */}
       <footer style={{position:"relative",zIndex:10,background:"rgba(0,0,0,.78)",backdropFilter:"blur(14px)",borderTop:"1px solid rgba(212,170,60,.1)",padding:"9px 13px"}}>
         {isHost?(
           <div style={{maxWidth:"880px",margin:"0 auto"}}>
@@ -440,7 +545,7 @@ export default function Game({session,character,onLeave}){
               {speaking&&<button className="cb" onClick={stopAudio} style={ctrlBtn(false,"#c84040","#ff8080")}>⏹ Stop</button>}
               {!speaking&&lastDM&&<button className="cb" onClick={()=>speak(lastDM.content)} style={ctrlBtn(false,"#4a7a5a","#70c080")}>🔁 Replay</button>}
               <button className="cb" onClick={()=>setShowQuests(v=>!v)} style={ctrlBtn(showQuests)}>🏆 Quests{activeQuests.length?" ("+activeQuests.length+")":""}</button>
-              <button className="cb" onClick={()=>setShowMap(true)} style={ctrlBtn(false,"#2a4a6a","#60a0c0")}>🗺️ Map</button>
+              <button className="cb" onClick={()=>setShowMap(true)} style={ctrlBtn(false,"#2a4a6a","#507898")}>🗺️ Map</button>
               <div style={{flex:1}}/>
               {speaking&&<span style={{color:"#70c080",fontSize:9,fontFamily:"'Cinzel',serif"}}>🔊 SPEAKING...</span>}
               <button className="cb" onClick={onLeave} style={{...ctrlBtn(false),color:"#2a1508"}}>✕ Leave</button>
@@ -452,7 +557,7 @@ export default function Game({session,character,onLeave}){
             <button className="cb" onClick={()=>setVoiceOn(v=>!v)} style={ctrlBtn(voiceOn)}>{voiceOn?"🔊 Voice":"🔇 Voice"}</button>
             {speaking&&<button className="cb" onClick={stopAudio} style={ctrlBtn(false,"#c84040","#ff8080")}>⏹ Stop</button>}
             {!speaking&&lastDM&&<button className="cb" onClick={()=>speak(lastDM.content)} style={ctrlBtn(false,"#4a7a5a","#70c080")}>🔁 Replay</button>}
-            <button className="cb" onClick={()=>setShowMap(true)} style={ctrlBtn(false,"#2a4a6a","#60a0c0")}>🗺️ Map</button>
+            <button className="cb" onClick={()=>setShowMap(true)} style={ctrlBtn(false,"#2a4a6a","#507898")}>🗺️ Map</button>
             <button className="cb" onClick={onLeave} style={{...ctrlBtn(false),color:"#2a1508"}}>✕ Leave</button>
           </div>
         )}
