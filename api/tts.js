@@ -18,7 +18,7 @@ export default async function handler(req, res) {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          text: text.substring(0, 2500),
+          text: text.substring(0, 1000),
           model_id: "eleven_turbo_v2",
           voice_settings: {
             stability: 0.55,
