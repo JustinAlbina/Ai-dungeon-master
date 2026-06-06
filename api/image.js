@@ -10,48 +10,27 @@ export default async function handler(req, res) {
   const { prompt, size = "1792x1024" } = req.body || {};
   if (!prompt) return res.status(400).json({ error: "No prompt provided" });
 
-  if (!process.env.OPENAI_API_KEY) {
-    return res.status(500).json({ error: "OPENAI_API_KEY not configured in Vercel environment variables" });
-  }
-
-  // DALL-E 3 only supports specific sizes
-  const validSizes = ["1024x1024", "1792x1024", "1024x1792"];
-  const finalSize = validSizes.includes(size) ? size : "1792x1024";
+  // Parse dimensions
+  const [width, height] = (size || "1792x1024").split("x").map(Number);
+  const w = width || 1792;
+  const h = height || 1024;
 
   try {
-    const response = await fetch("https://api.openai.com/v1/images/generations", {
-      method: "POST",
-      headers: {
-        "Authorization": "Bearer " + process.env.OPENAI_API_KEY,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "dall-e-3",
-        prompt: prompt.substring(0, 900),
-        n: 1,
-        size: finalSize,
-        quality: "standard",
-      }),
-    });
+    // Use Pollinations.ai — free, no key needed, good quality
+    const encoded = encodeURIComponent(prompt.substring(0, 500));
+    const seed = Math.floor(Math.random() * 999999);
+    const url = `https://image.pollinations.ai/prompt/${encoded}?width=${w}&height=${h}&seed=${seed}&model=flux&nologo=true&enhance=true`;
 
-    const data = await response.json();
-
-    if (!response.ok) {
-      console.error("DALL-E error:", JSON.stringify(data));
-      return res.status(response.status).json({
-        error: data.error?.message || "DALL-E API error",
-        details: data.error
-      });
+    // Verify it's reachable by fetching the image
+    const imageRes = await fetch(url, { method: "GET" });
+    if (!imageRes.ok) {
+      return res.status(500).json({ error: "Pollinations image generation failed: " + imageRes.status });
     }
 
-    if (!data.data?.[0]?.url) {
-      console.error("No URL in response:", JSON.stringify(data));
-      return res.status(500).json({ error: "No image URL returned from DALL-E" });
-    }
-
-    res.status(200).json({ url: data.data[0].url });
+    // Return the URL directly — Pollinations generates on-demand
+    res.status(200).json({ url });
   } catch (e) {
-    console.error("Image generation exception:", e.message);
+    console.error("Image generation error:", e.message);
     res.status(500).json({ error: e.message });
   }
 }
