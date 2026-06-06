@@ -146,7 +146,7 @@ export default function Game({session,character,onLeave}){
   const[players,setPlayers]=useState({});
   const[initialized,setInitialized]=useState(false);
   const[started,setStarted]=useState(false);
-  const[waitingMsg,setWaitingMsg]=useState("");
+  
 
   const bottomRef=useRef(null);
   const audioRef=useRef(null);
@@ -327,7 +327,6 @@ export default function Game({session,character,onLeave}){
   const launch=async(currentPlayers)=>{
     setLoading(true);
     try{
-      const playerArr=Object.values(currentPlayers||{});
       const prompt="The party has assembled. Welcome each player by name, describe their appearance based on their class and race, reference their backstories specifically. Then paint a vivid and exciting opening scene. You MUST include a <SCENE_IMAGE> tag describing exactly what the players see. Also output <SHEET_UPDATE> for each player assigning their starting stats and equipment.";
       const reply=await askClaude([{role:"user",content:prompt}],currentPlayers);
       const msg={role:"assistant",content:reply,id:Date.now(),player:"DM"};
