@@ -80,7 +80,7 @@ export default function CharacterCreation({ playerName, onDone }) {
     try {
       const prompt = "Fantasy D&D character, full body portrait, "+race+" "+cls+". "+appearance+". Dramatic painterly art style, cinematic lighting, detailed fantasy costume appropriate for a "+cls+", heroic pose, dark background.";
       const res = await fetch("/api/image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,size:"1024x1024"})});
-      if(res.ok){const d=await res.json();portraitUrl=d.url;setPortrait(d.url);}
+      if(res.ok){const d=await res.json();portraitUrl=d.url;}
     } catch(e){console.error("Portrait error",e);}
 
     setGenStatus("⚔️ Finalizing your character...");
