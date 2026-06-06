@@ -136,7 +136,7 @@ export default function Game({session,character,onLeave}){
   const[showDice,setShowDice]=useState(false);
   const[showSheet,setShowSheet]=useState(false);
   const[showMap,setShowMap]=useState(false);
-  const[lightbox,setLightbox]=useState(null);
+  const[lightbox,setLightbox]=useState(null); // eslint-disable-line
   const[showQuests,setShowQuests]=useState(false);
   const[characters,setCharacters]=useState({});
   const[quests,setQuests]=useState([]);
