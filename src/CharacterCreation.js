@@ -77,10 +77,26 @@ export default function CharacterCreation({ playerName, onDone }) {
     setGenStatus("🎨 Painting your portrait...");
     let portraitUrl = null;
     try {
-      const prompt = "Fantasy D&D character, full body portrait, "+race+" "+cls+". "+appearance+". Dramatic painterly art style, cinematic lighting, detailed fantasy costume appropriate for a "+cls+", heroic pose, dark background.";
-      const res = await fetch("/api/image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt,size:"1024x1024"})});
-      if(res.ok){const d=await res.json();portraitUrl=d.url;}
-    } catch(e){console.error("Portrait error",e);}
+      const portraitPrompt = "Fantasy D&D character art, full body portrait, " + race + " " + cls + " named " + (charName||playerName) + ". Physical appearance: " + appearance + ". Style: dramatic painterly fantasy illustration, cinematic lighting, detailed armor and costume appropriate for a " + cls + ", heroic pose, dark atmospheric background, high detail.";
+      const pRes = await fetch("/api/image", {
+        method: "POST",
+        headers: {"Content-Type": "application/json"},
+        body: JSON.stringify({prompt: portraitPrompt, size: "1024x1024"})
+      });
+      const pData = await pRes.json();
+      if (pRes.ok && pData.url) {
+        portraitUrl = pData.url;
+        console.log("Portrait generated:", portraitUrl);
+      } else {
+        console.error("Portrait generation failed:", pData.error || pData);
+        setGenStatus("⚠️ Portrait failed: " + (pData.error || "Unknown error") + " — continuing without portrait");
+        await new Promise(r => setTimeout(r, 2000));
+      }
+    } catch(e) {
+      console.error("Portrait exception:", e);
+      setGenStatus("⚠️ Portrait error — continuing...");
+      await new Promise(r => setTimeout(r, 1500));
+    }
 
     setGenStatus("⚔️ Finalizing your character...");
 

@@ -285,12 +285,23 @@ export default function Game({session,character,onLeave}){
   };
 
   const generateImage=async(prompt)=>{
+    if(!prompt)return null;
     setImageLoading(true);
     try{
-      const res=await fetch("/api/image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:"Fantasy D&D scene, dramatic painterly illustration, cinematic lighting, highly detailed: "+prompt})});
-      if(res.ok){const d=await res.json();setImageLoading(false);return d.url;}
-    }catch(e){console.error("Image error",e);}
-    setImageLoading(false);return null;
+      const fullPrompt="Fantasy D&D scene, dramatic painterly illustration, cinematic lighting, highly detailed: "+prompt;
+      console.log("Generating scene image:", fullPrompt.substring(0,100));
+      const res=await fetch("/api/image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:fullPrompt,size:"1792x1024"})});
+      const data=await res.json();
+      if(res.ok&&data.url){
+        console.log("Scene image generated OK");
+        setImageLoading(false);
+        return data.url;
+      }else{
+        console.error("Scene image failed:",data.error||data);
+      }
+    }catch(e){console.error("Scene image exception:",e.message);}
+    setImageLoading(false);
+    return null;
   };
 
   const processDMReply=async(reply,prevChars,prevQuests,prevInit,prevTurn,currentImg,currentPlayers)=>{
@@ -326,15 +337,65 @@ export default function Game({session,character,onLeave}){
 
   const launch=async(currentPlayers)=>{
     setLoading(true);
+    // Show loading image immediately
+    setImageLoading(true);
     try{
-      const prompt="The party has assembled. Welcome each player by name, describe their appearance based on their class and race, reference their backstories specifically. Then paint a vivid and exciting opening scene. You MUST include a <SCENE_IMAGE> tag describing exactly what the players see. Also output <SHEET_UPDATE> for each player assigning their starting stats and equipment.";
-      const reply=await askClaude([{role:"user",content:prompt}],currentPlayers);
+      const playerArr=Object.values(currentPlayers||{});
+      const settingHint=setting||"High Fantasy";
+      const prompt="The party has assembled. Welcome each player by name, describe their appearance based on their class and race, reference their backstories specifically. Then paint a vivid and exciting opening scene for the "+settingHint+" campaign. You MUST include a <SCENE_IMAGE> tag with a detailed visual description of the opening location. Also output <SHEET_UPDATE> for each player with their starting stats and equipment based on their class.";
+
+      // Run DM response and scene image in parallel
+      // First get a quick scene image based on the setting while DM is thinking
+      const quickScenePrompt = settingHint==="Pirates & Seas" ? "A dramatic port tavern at dusk, weathered wooden docks, lanterns swaying, mysterious sailors" :
+        settingHint==="Dark Fantasy" ? "A grim dark forest path at night, dead trees, ominous fog, distant flickering torches" :
+        settingHint==="Horror" ? "An ancient crumbling mansion at midnight, lightning illuminating gargoyles, fog covering the ground" :
+        settingHint==="Sci-Fi D&D" ? "A futuristic spaceport with ancient ruins visible, neon lights mixing with magical glows" :
+        "A grand medieval fantasy tavern interior, warm firelight, adventurers gathered, weapons on walls";
+
+      // Start image generation immediately
+      const imagePromise = generateImage(quickScenePrompt);
+
+      // Get DM response simultaneously
+      const reply = await askClaude([{role:"user",content:prompt}], currentPlayers);
       const msg={role:"assistant",content:reply,id:Date.now(),player:"DM"};
       setMessages([msg]);
-      const{newChars,newQuests,newImage,newInit,newTurn}=await processDMReply(reply,{},quests,initiative,currentTurn,null,currentPlayers);
-      await persist([msg],newChars,newQuests,newImage,newInit,newTurn,currentPlayers);
+
+      // Wait for initial image
+      let imageUrl = await imagePromise;
+
+      // Check if DM provided a better scene description
+      const dmScenePrompt = parseTag(reply, "SCENE_IMAGE");
+      if(dmScenePrompt){
+        // Generate the DM's specific scene image too
+        const betterUrl = await generateImage(dmScenePrompt);
+        if(betterUrl) imageUrl = betterUrl;
+      }
+
+      if(imageUrl){ setSceneImage(imageUrl); }
+      setImageLoading(false);
+
+      const sheetUpdates=parseAllSheets(reply);
+      const newChars={};
+      Object.entries(sheetUpdates).forEach(([pName,charData])=>{
+        const portrait=(currentPlayers||{})[pName]?.portrait||null;
+        newChars[pName]={...charData,portrait};
+      });
+      if(Object.keys(newChars).length) setCharacters(newChars);
+
+      const questUpdate=parseTag(reply,"QUEST_UPDATE");
+      if(questUpdate) setQuests(questUpdate);
+      const initUpdate=parseTag(reply,"INITIATIVE");
+      if(initUpdate) setInitiative(initUpdate);
+      const turnUpdate=parseTag(reply,"TURN");
+      if(turnUpdate) setCurrentTurn(turnUpdate);
+
+      await persist([msg],newChars,questUpdate||quests,imageUrl,initUpdate||initiative,turnUpdate||currentTurn,currentPlayers);
       speak(reply);
-    }catch(e){setMessages([{role:"assistant",content:"Error: "+e.message,id:Date.now()}]);}
+    }catch(e){
+      console.error("Launch error:",e);
+      setImageLoading(false);
+      setMessages([{role:"assistant",content:"Error starting campaign: "+e.message,id:Date.now()}]);
+    }
     setLoading(false);
   };
 
