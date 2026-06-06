@@ -62,7 +62,6 @@ export default function CharacterCreation({ playerName, onDone }) {
   const [appearance, setAppearance] = useState("");
   const [backstory, setBackstory]   = useState("");
   const [customBack, setCustomBack] = useState("");
-  const [portrait, setPortrait]     = useState(null);
   const [genStatus, setGenStatus]   = useState("");
   const [finalChar, setFinalChar]   = useState(null);
 
