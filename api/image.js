@@ -7,27 +7,40 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   res.setHeader("Access-Control-Allow-Origin", "*");
 
-  const { prompt, size = "1792x1024" } = req.body || {};
+  const { prompt, size = "1024x1024" } = req.body || {};
   if (!prompt) return res.status(400).json({ error: "No prompt" });
 
-  // Try OpenAI DALL-E first (now that account may have access)
+  let dalleError = null;
+
+  // Try DALL-E 3
   if (process.env.OPENAI_API_KEY) {
-    const [w, h] = (size || "1792x1024").split("x").map(Number);
-    // DALL-E 3 valid sizes only
-    const dalleSize = (w > h) ? "1792x1024" : w === h ? "1024x1024" : "1024x1792";
     try {
       const r = await fetch("https://api.openai.com/v1/images/generations", {
         method: "POST",
-        headers: { "Authorization": "Bearer " + process.env.OPENAI_API_KEY, "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "dall-e-3", prompt: prompt.substring(0, 900), n: 1, size: dalleSize, quality: "standard" }),
+        headers: {
+          "Authorization": "Bearer " + process.env.OPENAI_API_KEY,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "dall-e-3",
+          prompt: prompt.substring(0, 900),
+          n: 1,
+          size: "1024x1024",
+          quality: "standard",
+        }),
       });
       const d = await r.json();
       if (r.ok && d.data?.[0]?.url) {
         console.log("DALL-E success");
         return res.status(200).json({ url: d.data[0].url });
       }
-      console.error("DALL-E failed:", d.error?.message || JSON.stringify(d).substring(0, 200));
-    } catch(e) { console.error("DALL-E exception:", e.message); }
+      // Capture the real error so we can return it
+      dalleError = d.error?.message || d.error?.code || JSON.stringify(d).substring(0, 300);
+      console.error("DALL-E failed:", dalleError);
+    } catch(e) {
+      dalleError = e.message;
+      console.error("DALL-E exception:", e.message);
+    }
   }
 
   // Fallback: Stability AI
@@ -35,7 +48,11 @@ export default async function handler(req, res) {
     try {
       const r = await fetch("https://api.stability.ai/v1/generation/stable-diffusion-xl-1024-v1-0/text-to-image", {
         method: "POST",
-        headers: { "Authorization": "Bearer " + process.env.STABILITY_API_KEY, "Content-Type": "application/json", "Accept": "application/json" },
+        headers: {
+          "Authorization": "Bearer " + process.env.STABILITY_API_KEY,
+          "Content-Type": "application/json",
+          "Accept": "application/json",
+        },
         body: JSON.stringify({
           text_prompts: [{ text: prompt.substring(0, 500), weight: 1 }],
           cfg_scale: 7, height: 1024, width: 1024, steps: 20, samples: 1,
@@ -50,5 +67,10 @@ export default async function handler(req, res) {
     } catch(e) { console.error("Stability exception:", e.message); }
   }
 
-  return res.status(503).json({ error: "No image provider available. Add OPENAI_API_KEY or STABILITY_API_KEY to Vercel environment variables." });
+  // Return the actual DALL-E error so you can see what's going wrong
+  return res.status(503).json({
+    error: "Image generation failed",
+    dalle_error: dalleError || "OPENAI_API_KEY not set",
+    hint: "Check browser console or Vercel logs for details",
+  });
 }
