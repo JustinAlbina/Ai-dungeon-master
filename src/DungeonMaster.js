@@ -31,11 +31,18 @@ FORMATTING:
 - *italics* for atmosphere and NPC speech
 - 🎲 narration · 📜 rules · ⚔️ combat
 - Keep responses engaging but conversational — not too long
+- NEVER use markdown tables with pipe characters
+- You may use # or ## for section headers
+- Do NOT use --- horizontal rules
 
 Begin by warmly welcoming the players!`;
 
 function fmt(text) {
   return text
+    .replace(/^### (.+)$/gm, "<h3 style='font-family:Cinzel,serif;color:#c8943a;font-size:14px;letter-spacing:2px;margin:12px 0 6px'>$1</h3>")
+    .replace(/^## (.+)$/gm, "<h2 style='font-family:Cinzel,serif;color:#d4aa3c;font-size:16px;letter-spacing:2px;margin:14px 0 8px'>$1</h2>")
+    .replace(/^# (.+)$/gm, "<h1 style='font-family:Cinzel,serif;color:#f4c842;font-size:20px;letter-spacing:3px;margin:16px 0 10px'>$1</h1>")
+    .replace(/^---+$/gm, "<hr style='border:none;border-top:1px solid rgba(200,148,58,.25);margin:12px 0'/>")
     .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.*?)\*/g, "<em>$1</em>")
     .replace(/\n/g, "<br/>");
@@ -43,14 +50,17 @@ function fmt(text) {
 
 function clean(text) {
   return text
+    .replace(/^#{1,3} /gm, "")
+    .replace(/^---+$/gm, "")
     .replace(/\*\*(.*?)\*\*/g, "$1")
     .replace(/\*(.*?)\*/g, "$1")
-    .replace(/[🎲📜⚔️🏰🐉⚡🎭]/gu, "")
+    .replace(/[🎲📜⚔️🏰🐉⚡🎭🔮🗡️🏹🛡️🌿]/gu, "")
     .replace(/\[.*?\]/g, "")
+    .replace(/\|/g, " ")
     .replace(/<br\/>/g, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .substring(0, 1000);
+    .substring(0, 2500);
 }
 
 const QUICK = [
@@ -74,7 +84,7 @@ export default function DungeonMaster() {
   const bottomRef   = useRef(null);
   const audioRef    = useRef(null);
   const synthRef    = useRef(window.speechSynthesis);
-  const kaRef       = useRef(null); // keepalive
+  const kaRef       = useRef(null);
 
   const [particles] = useState(() =>
     Array.from({ length: 20 }, (_, i) => ({
@@ -89,7 +99,6 @@ export default function DungeonMaster() {
 
   useEffect(() => { if (!ready) { setReady(true); launch(); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // ── Claude via server proxy ──────────────────────────────────────
   const askClaude = async (history) => {
     const res = await fetch("/api/claude", {
       method: "POST",
@@ -101,35 +110,67 @@ export default function DungeonMaster() {
         messages: history.map(m => ({ role: m.role, content: m.content })),
       }),
     });
-    if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || `Error ${res.status}`); }
+    if (!res.ok) { const e = await res.json(); throw new Error(e.error?.message || "Error " + res.status); }
     const data = await res.json();
     return data.content?.[0]?.text || "The DM ponders in silence...";
   };
 
-  // ── ElevenLabs via server proxy ──────────────────────────────────
+  // Split text into chunks of ~500 chars at sentence boundaries
+  const chunkText = (text) => {
+    const sentences = text.match(/[^.!?]+[.!?]+/g) || [text];
+    const chunks = [];
+    let current = "";
+    for (const s of sentences) {
+      if ((current + s).length > 500 && current.length > 0) {
+        chunks.push(current.trim());
+        current = s;
+      } else {
+        current += s;
+      }
+    }
+    if (current.trim()) chunks.push(current.trim());
+    return chunks.length > 0 ? chunks : [text];
+  };
+
+  const stopSignalRef = useRef(false);
+
+  const speakChunk = async (chunk) => {
+    const res = await fetch("/api/tts", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: chunk }),
+    });
+    if (!res.ok) return false;
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    return new Promise((resolve) => {
+      if (stopSignalRef.current) { URL.revokeObjectURL(url); resolve(false); return; }
+      const audio = new Audio(url);
+      audio._url = url;
+      audioRef.current = audio;
+      audio.onended = () => { URL.revokeObjectURL(url); resolve(true); };
+      audio.onerror = () => { URL.revokeObjectURL(url); resolve(false); };
+      audio.play().catch(() => resolve(false));
+    });
+  };
+
   const speakElevenLabs = useCallback(async (text) => {
     try {
+      const cleaned = clean(text);
+      if (!cleaned) return false;
+      const chunks = chunkText(cleaned);
+      stopSignalRef.current = false;
       setSpeaking(true);
-      const res = await fetch("/api/tts", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ text: clean(text) }),
-      });
-      if (!res.ok) { setSpeaking(false); return false; }
-      const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      if (audioRef.current) { audioRef.current.pause(); URL.revokeObjectURL(audioRef.current._url); }
-      const audio = new Audio(url);
-      audio._url  = url;
-      audioRef.current = audio;
-      audio.onended = () => { setSpeaking(false); URL.revokeObjectURL(url); };
-      audio.onerror = () => { setSpeaking(false); };
-      await audio.play();
+      for (const chunk of chunks) {
+        if (stopSignalRef.current) break;
+        const ok = await speakChunk(chunk);
+        if (!ok) break;
+      }
+      setSpeaking(false);
       return true;
-    } catch { setSpeaking(false); return false; }
+    } catch(e) { setSpeaking(false); return false; }
   }, []);
 
-  // ── Browser TTS fallback ─────────────────────────────────────────
   const speakBrowser = useCallback((text) => {
     const t = clean(text); if (!t) return;
     synthRef.current.cancel();
@@ -138,8 +179,8 @@ export default function DungeonMaster() {
       const u = new SpeechSynthesisUtterance(t);
       u.rate = 0.88; u.pitch = 0.82; u.volume = 1;
       const vs = synthRef.current.getVoices();
-      const v  = vs.find(v => v.name.includes("UK English Male") || v.name.includes("Daniel") || v.name.includes("Google UK"))
-               || vs.find(v => v.lang.startsWith("en")) || vs[0];
+      const v = vs.find(v => v.name.includes("UK English Male") || v.name.includes("Daniel") || v.name.includes("Google UK"))
+              || vs.find(v => v.lang.startsWith("en")) || vs[0];
       if (v) u.voice = v;
       u.onstart = () => { setSpeaking(true); kaRef.current = setInterval(() => { if (synthRef.current.paused) synthRef.current.resume(); }, 10000); };
       u.onend   = () => { setSpeaking(false); clearInterval(kaRef.current); };
@@ -148,21 +189,21 @@ export default function DungeonMaster() {
     }, 120);
   }, []);
 
+  const stopAudio = useCallback(() => {
+    stopSignalRef.current = true;
+    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
+    synthRef.current.cancel();
+    clearInterval(kaRef.current);
+    setSpeaking(false);
+  }, []);
+
   const speak = useCallback(async (text) => {
     if (!voiceOn || !text) return;
     stopAudio();
     const ok = await speakElevenLabs(text);
     if (!ok) speakBrowser(text);
-  }, [voiceOn, speakElevenLabs, speakBrowser]);
+  }, [voiceOn, speakElevenLabs, speakBrowser, stopAudio]);
 
-  const stopAudio = () => {
-    if (audioRef.current) { audioRef.current.pause(); audioRef.current = null; }
-    synthRef.current.cancel();
-    clearInterval(kaRef.current);
-    setSpeaking(false);
-  };
-
-  // ── Speech Recognition ───────────────────────────────────────────
   const startListening = () => {
     const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SR) { alert("Speech recognition needs Chrome — type your action instead!"); return; }
@@ -176,16 +217,14 @@ export default function DungeonMaster() {
     rec.start();
   };
 
-  // ── Game flow ────────────────────────────────────────────────────
   const launch = async () => {
     setLoading(true);
     try {
       const reply = await askClaude([{ role: "user", content: "Begin the session! Welcome us and start the campaign setup." }]);
-      const msg = { role: "assistant", content: reply, id: Date.now() };
-      setMessages([msg]);
+      setMessages([{ role: "assistant", content: reply, id: Date.now() }]);
       speak(reply);
     } catch (e) {
-      setMessages([{ role: "assistant", content: `⚠️ ${e.message}`, id: Date.now() }]);
+      setMessages([{ role: "assistant", content: "Error: " + e.message, id: Date.now() }]);
     }
     setLoading(false);
   };
@@ -200,18 +239,16 @@ export default function DungeonMaster() {
     stopAudio();
     try {
       const reply = await askClaude(history);
-      const dmMsg = { role: "assistant", content: reply, id: Date.now() + 1 };
-      setMessages(p => [...p, dmMsg]);
+      setMessages(p => [...p, { role: "assistant", content: reply, id: Date.now() + 1 }]);
       speak(reply);
     } catch (e) {
-      setMessages(p => [...p, { role: "assistant", content: `⚠️ ${e.message}`, id: Date.now() + 1 }]);
+      setMessages(p => [...p, { role: "assistant", content: "Error: " + e.message, id: Date.now() + 1 }]);
     }
     setLoading(false);
   };
 
   const lastDM = [...messages].reverse().find(m => m.role === "assistant");
 
-  // ── Render ───────────────────────────────────────────────────────
   return (
     <div style={{
       minHeight: "100vh",
@@ -220,16 +257,14 @@ export default function DungeonMaster() {
       display: "flex", flexDirection: "column",
       position: "relative", overflow: "hidden", color: "#e8d5a3",
     }}>
-
-      {/* Particles */}
       {particles.map(p => (
         <div key={p.id} style={{
-          position: "fixed", left: `${p.x}%`, top: `${p.y}%`,
-          width: `${p.size}px`, height: `${p.size}px`,
+          position: "fixed", left: p.x + "%", top: p.y + "%",
+          width: p.size + "px", height: p.size + "px",
           background: "radial-gradient(circle,#f4c842,#c97b2a)",
           borderRadius: "50%", opacity: .35, pointerEvents: "none", zIndex: 0,
           boxShadow: "0 0 6px #f4c842",
-          animation: `fp ${p.dur}s ${p.delay}s ease-in-out infinite alternate`,
+          animation: "fp " + p.dur + "s " + p.delay + "s ease-in-out infinite alternate",
         }} />
       ))}
 
@@ -247,7 +282,6 @@ export default function DungeonMaster() {
         .cb:hover{opacity:.75}
       `}</style>
 
-      {/* ── HEADER ── */}
       <header style={{
         position: "relative", zIndex: 10, textAlign: "center",
         padding: "20px 20px 13px",
@@ -264,11 +298,10 @@ export default function DungeonMaster() {
         <div style={{ fontSize: "10px", color: "#5a4025", letterSpacing: "2px", fontFamily: "'Cinzel',serif" }}>
           AI-POWERED · BEGINNERS WELCOME · NO SETUP REQUIRED
         </div>
-
         <div style={{ display: "flex", justifyContent: "center", gap: "8px", marginTop: "10px", flexWrap: "wrap" }}>
           <button className="cb" onClick={() => setVoiceOn(v => !v)} style={{
             background: voiceOn ? "rgba(212,170,60,.12)" : "rgba(50,50,50,.2)",
-            border: `1px solid ${voiceOn ? "#c8943a" : "#3a3a3a"}`,
+            border: "1px solid " + (voiceOn ? "#c8943a" : "#3a3a3a"),
             color: voiceOn ? "#f4c842" : "#555",
             borderRadius: "20px", padding: "4px 13px", fontSize: "12px",
             cursor: "pointer", fontFamily: "'Cinzel',serif", letterSpacing: "1px", transition: "all .2s",
@@ -292,7 +325,6 @@ export default function DungeonMaster() {
         </div>
       </header>
 
-      {/* ── MESSAGES ── */}
       <main style={{
         flex: 1, overflowY: "auto", padding: "20px 16px",
         position: "relative", zIndex: 5,
@@ -319,7 +351,7 @@ export default function DungeonMaster() {
               background: msg.role === "assistant"
                 ? "linear-gradient(135deg,rgba(26,12,3,.97),rgba(16,8,26,.97))"
                 : "linear-gradient(135deg,rgba(36,20,6,.93),rgba(46,26,3,.93))",
-              border: `1px solid ${msg.role === "assistant" ? "rgba(200,148,58,.35)" : "rgba(180,130,40,.25)"}`,
+              border: "1px solid " + (msg.role === "assistant" ? "rgba(200,148,58,.35)" : "rgba(180,130,40,.25)"),
               borderRadius: msg.role === "assistant" ? "4px 18px 18px 18px" : "18px 4px 18px 18px",
               padding: "13px 17px", lineHeight: 1.78, fontSize: "15.5px",
               color: msg.role === "assistant" ? "#e8d5a3" : "#f0e0b0",
@@ -363,7 +395,7 @@ export default function DungeonMaster() {
               {[0,1,2].map(i => (
                 <div key={i} style={{
                   width: 7, height: 7, borderRadius: "50%", background: "#c8943a", opacity: .7,
-                  animation: `bounce .9s ${i * 0.18}s ease-in-out infinite`,
+                  animation: "bounce .9s " + (i * 0.18) + "s ease-in-out infinite",
                 }} />
               ))}
               <span style={{ color: "#7a5030", fontSize: 13, marginLeft: 8, fontFamily: "'Cinzel',serif" }}>
@@ -375,7 +407,6 @@ export default function DungeonMaster() {
         <div ref={bottomRef} />
       </main>
 
-      {/* ── QUICK CHIPS ── */}
       <div style={{
         position: "relative", zIndex: 10,
         maxWidth: "880px", width: "100%", margin: "0 auto",
@@ -391,7 +422,6 @@ export default function DungeonMaster() {
         ))}
       </div>
 
-      {/* ── INPUT ── */}
       <footer style={{
         position: "relative", zIndex: 10,
         background: "rgba(0,0,0,.72)", backdropFilter: "blur(14px)",
@@ -401,7 +431,7 @@ export default function DungeonMaster() {
           <button onClick={startListening} style={{
             width: 46, height: 46, borderRadius: "50%", flexShrink: 0,
             background: listening ? "radial-gradient(circle,#8b0000,#4a0000)" : "radial-gradient(circle,#2a1500,#100a00)",
-            border: `2px solid ${listening ? "#ff4040" : "#7a5018"}`,
+            border: "2px solid " + (listening ? "#ff4040" : "#7a5018"),
             color: listening ? "#ff8080" : "#c8943a",
             fontSize: 18, cursor: "pointer",
             animation: listening ? "lpulse 1s infinite" : "none",
@@ -426,14 +456,13 @@ export default function DungeonMaster() {
           <button onClick={() => send(input)} disabled={loading || !input.trim()} style={{
             width: 46, height: 46, borderRadius: "50%", flexShrink: 0,
             background: (loading || !input.trim()) ? "radial-gradient(circle,#161616,#0c0c0c)" : "radial-gradient(circle,#5a3a00,#2a1800)",
-            border: `2px solid ${(loading || !input.trim()) ? "#222" : "#d4aa3c"}`,
+            border: "2px solid " + ((loading || !input.trim()) ? "#222" : "#d4aa3c"),
             color: (loading || !input.trim()) ? "#2a2a2a" : "#f4c842",
             fontSize: 20, cursor: (loading || !input.trim()) ? "not-allowed" : "pointer",
             display: "flex", alignItems: "center", justifyContent: "center",
             animation: (!loading && input.trim()) ? "glow 2s infinite" : "none", transition: "all .2s",
           }}>⚡</button>
         </div>
-
         <div style={{
           textAlign: "center", marginTop: 6, fontSize: 10, color: "#3a2810",
           fontFamily: "'Cinzel',serif", letterSpacing: "1px",
