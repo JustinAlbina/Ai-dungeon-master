@@ -8,29 +8,46 @@ export default async function handler(req, res) {
   res.setHeader("Access-Control-Allow-Origin", "*");
 
   const { prompt, size = "1792x1024" } = req.body || {};
-  if (!prompt) return res.status(400).json({ error: "No prompt provided" });
+  if (!prompt) return res.status(400).json({ error: "No prompt" });
 
-  // Parse dimensions
+  const hfKey = process.env.HUGGINGFACE_API_KEY;
+  if (!hfKey) return res.status(500).json({ error: "HUGGINGFACE_API_KEY not set" });
+
   const [width, height] = (size || "1792x1024").split("x").map(Number);
-  const w = width || 1792;
-  const h = height || 1024;
 
   try {
-    // Use Pollinations.ai — free, no key needed, good quality
-    const encoded = encodeURIComponent(prompt.substring(0, 500));
-    const seed = Math.floor(Math.random() * 999999);
-    const url = `https://image.pollinations.ai/prompt/${encoded}?width=${w}&height=${h}&seed=${seed}&model=flux&nologo=true&enhance=true`;
+    const response = await fetch(
+      "https://api-inference.huggingface.co/models/stabilityai/stable-diffusion-xl-base-1.0",
+      {
+        method: "POST",
+        headers: {
+          "Authorization": "Bearer " + hfKey,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          inputs: prompt.substring(0, 500),
+          parameters: {
+            width: Math.min(width, 1024),
+            height: Math.min(height, 1024),
+            num_inference_steps: 20,
+            guidance_scale: 7.5,
+          }
+        }),
+      }
+    );
 
-    // Verify it's reachable by fetching the image
-    const imageRes = await fetch(url, { method: "GET" });
-    if (!imageRes.ok) {
-      return res.status(500).json({ error: "Pollinations image generation failed: " + imageRes.status });
+    if (!response.ok) {
+      const text = await response.text();
+      console.error("HuggingFace error:", response.status, text);
+      return res.status(response.status).json({ error: "Image generation failed: " + text.substring(0, 200) });
     }
 
-    // Return the URL directly — Pollinations generates on-demand
-    res.status(200).json({ url });
+    const buffer = await response.arrayBuffer();
+    const base64 = Buffer.from(buffer).toString("base64");
+    const dataUrl = "data:image/jpeg;base64," + base64;
+    res.status(200).json({ url: dataUrl });
   } catch (e) {
-    console.error("Image generation error:", e.message);
+    console.error("Image error:", e.message);
     res.status(500).json({ error: e.message });
   }
 }

@@ -290,12 +290,15 @@ export default function Game({session,character,onLeave}){
     try{
       const fullPrompt="Fantasy D&D scene, dramatic painterly illustration, cinematic lighting, highly detailed: "+prompt;
       console.log("Generating scene image:", fullPrompt.substring(0,100));
-      const encoded=encodeURIComponent(fullPrompt.substring(0,500));
-      const seed=Math.floor(Math.random()*999999);
-      const url="https://image.pollinations.ai/prompt/"+encoded+"?width=1792&height=1024&seed="+seed+"&model=flux&nologo=true&enhance=true";
-      // Pollinations generates on-demand — just return the URL directly
-      setImageLoading(false);
-      return url;
+      const res=await fetch("/api/image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:fullPrompt,size:"1024x1024"})});
+      const data=await res.json();
+      if(res.ok&&data.url){
+        console.log("Scene image generated OK");
+        setImageLoading(false);
+        return data.url;
+      }else{
+        console.error("Scene image failed:",data.error);
+      }
     }catch(e){console.error("Scene image exception:",e.message);}
     setImageLoading(false);
     return null;
