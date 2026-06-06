@@ -340,7 +340,6 @@ export default function Game({session,character,onLeave}){
     // Show loading image immediately
     setImageLoading(true);
     try{
-      const playerArr=Object.values(currentPlayers||{});
       const settingHint=setting||"High Fantasy";
       const prompt="The party has assembled. Welcome each player by name, describe their appearance based on their class and race, reference their backstories specifically. Then paint a vivid and exciting opening scene for the "+settingHint+" campaign. You MUST include a <SCENE_IMAGE> tag with a detailed visual description of the opening location. Also output <SHEET_UPDATE> for each player with their starting stats and equipment based on their class.";
 
