@@ -13,7 +13,7 @@ const btn = (active=true,extra={}) => ({ width:"100%", marginTop:"14px", padding
 
 const wrap = { minHeight:"100vh", background:"radial-gradient(ellipse at 20% 0%,#1a0a2e 0%,#0d0d1a 40%,#000508 100%)", display:"flex", alignItems:"center", justifyContent:"center", padding:"20px", fontFamily:"'Crimson Text',Georgia,serif" };
 const card = { background:"linear-gradient(135deg,rgba(28,13,4,.97),rgba(14,7,22,.97))", border:"1px solid rgba(212,170,60,.4)", borderRadius:"16px", padding:"36px", maxWidth:"460px", width:"100%", boxShadow:"0 0 60px rgba(0,0,0,.8)" };
-const title = (text) => <div style={{fontFamily:"'Cinzel',serif",fontSize:"20px",fontWeight:700,background:"linear-gradient(135deg,#f4c842,#e8a020)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",textAlign:"center",letterSpacing:"3px",marginBottom:"20px"}}>{text}</div>;
+function PageTitle({children}){ return <div style={{fontFamily:"'Cinzel',serif",fontSize:"20px",fontWeight:700,background:"linear-gradient(135deg,#f4c842,#e8a020)",backgroundClip:"text",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",textAlign:"center",letterSpacing:"3px",marginBottom:"20px"}}>{children}</div>; }
 
 export default function Lobby({ onJoin }) {
   const [mode, setMode]           = useState("choose");
@@ -54,7 +54,7 @@ export default function Lobby({ onJoin }) {
 
   if (mode === "hosting") return (
     <div style={wrap}><div style={card}>
-      {title("⚔️ SESSION READY")}
+      <PageTitle>⚔️ SESSION READY</PageTitle>
       <div style={{textAlign:"center",color:"#5a4025",fontFamily:"'Cinzel',serif",fontSize:"10px",letterSpacing:"2px",marginBottom:"16px"}}>SHARE THIS CODE WITH YOUR PARTY</div>
       <div style={{fontFamily:"monospace",fontSize:"36px",letterSpacing:"10px",color:"#f4c842",textAlign:"center",padding:"18px",background:"rgba(0,0,0,.4)",borderRadius:"10px",border:"1px solid rgba(200,148,58,.3)",marginBottom:"16px"}}>{sessionCode}</div>
       <div style={{color:"#7a6040",fontSize:"14px",textAlign:"center",lineHeight:1.7,marginBottom:"4px"}}>
@@ -68,7 +68,7 @@ export default function Lobby({ onJoin }) {
 
   if (mode === "host") return (
     <div style={wrap}><div style={card}>
-      {title("🐉 HOST SESSION")}
+      <PageTitle>🐉 HOST SESSION</PageTitle>
       <label style={lbl}>YOUR NAME</label>
       <input style={inp} placeholder="e.g. Justin" value={name} onChange={e=>setName(e.target.value)} />
       <label style={lbl}>NUMBER OF PLAYERS</label>
@@ -89,7 +89,7 @@ export default function Lobby({ onJoin }) {
 
   if (mode === "join") return (
     <div style={wrap}><div style={card}>
-      {title("🗝️ JOIN SESSION")}
+      <PageTitle>🗝️ JOIN SESSION</PageTitle>
       <label style={lbl}>YOUR NAME</label>
       <input style={inp} placeholder="e.g. Mikayla" value={name} onChange={e=>setName(e.target.value)} />
       <label style={lbl}>SESSION CODE</label>
