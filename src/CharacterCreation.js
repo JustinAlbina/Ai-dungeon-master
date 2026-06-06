@@ -37,11 +37,11 @@ export default function CharacterCreation({ playerName, sessionId, onDone }) {
   const [backstory, setBackstory]   = useState("");
   const [customBack, setCustomBack] = useState("");
   const [portrait, setPortrait]     = useState(null);
-  const [generating, setGenerating] = useState(false);
-  const [error, setError]           = useState("");
+  // generating state handled inline
+  // error state removed
 
   const generatePortrait = async (name, race, cls, appearance) => {
-    setGenerating(true);
+    
     try {
       const prompt = `Fantasy D&D character portrait, ${race} ${cls} named ${name}. ${appearance || "heroic adventurer"}. Dramatic painterly style, detailed face, cinematic lighting, close-up bust portrait, intricate fantasy armor/clothing appropriate for the class.`;
       const res = await fetch("/api/image", {
@@ -53,7 +53,7 @@ export default function CharacterCreation({ playerName, sessionId, onDone }) {
         setPortrait(data.url);
       }
     } catch (e) { console.error("Portrait gen error", e); }
-    setGenerating(false);
+    
   };
 
   const finish = async () => {
