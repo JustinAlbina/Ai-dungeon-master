@@ -31,11 +31,59 @@ FORMATTING:
 - *italics* for atmosphere and NPC speech
 - 🎲 narration · 📜 rules · ⚔️ combat
 - Keep responses engaging but conversational — not too long
+- NEVER use markdown tables (| pipes) — describe class options as a simple list instead
 
 Begin by warmly welcoming the players!`;
 
 function fmt(text) {
-  return text
+  // Convert markdown tables to HTML
+  const lines = text.split("\n");
+  let inTable = false;
+  let result = [];
+  let tableRows = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (line.trim().startsWith("|") && line.trim().endsWith("|")) {
+      if (!inTable) { inTable = true; tableRows = []; }
+      // skip separator rows like |---|---|
+      if (/^[\s|:-]+$/.test(line)) continue;
+      const cells = line.split("|").filter((_, i, a) => i > 0 && i < a.length - 1).map(c => c.trim());
+      tableRows.push(cells);
+    } else {
+      if (inTable) {
+        // flush table
+        let html = '<table style="border-collapse:collapse;margin:8px 0;font-size:14px;width:100%">';
+        tableRows.forEach((row, ri) => {
+          html += "<tr>";
+          row.forEach(cell => {
+            const tag = ri === 0 ? "th" : "td";
+            html += \`<\${tag} style="border:1px solid rgba(200,148,58,.3);padding:6px 10px;text-align:left">\${cell}<\/\${tag}>\`;
+          });
+          html += "</tr>";
+        });
+        html += "</table>";
+        result.push(html);
+        inTable = false; tableRows = [];
+      }
+      result.push(line);
+    }
+  }
+  if (inTable && tableRows.length) {
+    let html = '<table style="border-collapse:collapse;margin:8px 0;font-size:14px;width:100%">';
+    tableRows.forEach((row, ri) => {
+      html += "<tr>";
+      row.forEach(cell => {
+        const tag = ri === 0 ? "th" : "td";
+        html += \`<\${tag} style="border:1px solid rgba(200,148,58,.3);padding:6px 10px;text-align:left">\${cell}<\/\${tag}>\`;
+      });
+      html += "</tr>";
+    });
+    html += "</table>";
+    result.push(html);
+  }
+
+  return result.join("\n")
     .replace(/\*\*(.*?)\*\*/g, "<strong>$1</strong>")
     .replace(/\*(.*?)\*/g, "<em>$1</em>")
     .replace(/\n/g, "<br/>");
@@ -47,10 +95,12 @@ function clean(text) {
     .replace(/\*(.*?)\*/g, "$1")
     .replace(/[🎲📜⚔️🏰🐉⚡🎭]/gu, "")
     .replace(/\[.*?\]/g, "")
+    .replace(/\|[-:]+\|[-|: ]*/g, " ")  // strip table separators
+    .replace(/\|/g, " ")                  // strip remaining pipes
     .replace(/<br\/>/g, " ")
     .replace(/\s+/g, " ")
     .trim()
-    .substring(0, 1000);
+    .substring(0, 2500);
 }
 
 const QUICK = [
