@@ -107,12 +107,12 @@ function chunkText(text){
 function classEmoji(cls){const map={Fighter:"⚔️",Wizard:"🔮",Rogue:"🗡️",Cleric:"✨",Ranger:"🏹",Paladin:"🛡️",Bard:"🎭",Druid:"🌿",Barbarian:"💢",Monk:"👊",Sorcerer:"⚡",Warlock:"👁️"};return map[cls]||"⚔️";}
 function ctrlBtn(active,bc,c){return{background:active?"rgba(212,170,60,.12)":"rgba(24,12,3,.6)",border:"1px solid "+(bc||(active?"#c8943a":"rgba(200,148,58,.15)")),color:c||(active?"#f4c842":"#6a4020"),borderRadius:"16px",padding:"4px 11px",fontSize:"11px",cursor:"pointer",fontFamily:"'Cinzel',serif",letterSpacing:"1px",transition:"all .2s"};}
 
-function PlayerCard({p,isMe,isTurn,initiative,onClick,onPortraitClick}){
+function PlayerCard({p,isMe,isTurn,initiative,onClick}){
   const initPos=initiative.indexOf(p.playerName);
   const hpPct=p.hp!==undefined&&p.maxHp?Math.max(0,Math.min(100,(p.hp/p.maxHp)*100)):null;
   return(
     <div onClick={onClick} style={{width:"72px",flexShrink:0,borderRadius:"10px",cursor:onClick?"pointer":"default",background:isTurn?"linear-gradient(135deg,rgba(20,60,20,.9),rgba(10,40,10,.9))":isMe?"linear-gradient(135deg,rgba(40,20,5,.9),rgba(25,10,3,.9))":"linear-gradient(135deg,rgba(20,10,5,.7),rgba(12,6,3,.7))",border:"1px solid "+(isTurn?"#40c040":isMe?"#c8943a":"rgba(200,148,58,.12)"),padding:"6px",textAlign:"center",animation:isTurn?"turnpulse 1.5s infinite":"none",transition:"all .2s"}}>
-      <div onClick={e=>{if(p.portrait&&onPortraitClick){e.stopPropagation();onPortraitClick(p.portrait);}}} style={{width:"48px",height:"48px",borderRadius:"8px",margin:"0 auto 4px",overflow:"hidden",background:"rgba(0,0,0,.4)",border:"1px solid rgba(200,148,58,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"20px",cursor:p.portrait&&onPortraitClick?"zoom-in":"default"}}>
+      <div style={{width:"48px",height:"48px",borderRadius:"8px",margin:"0 auto 4px",overflow:"hidden",background:"rgba(0,0,0,.4)",border:"1px solid rgba(200,148,58,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"20px"}}>
         {p.portrait?<img src={p.portrait} alt="" style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"top"}}/>:classEmoji(p.cls)}
       </div>
       <div style={{fontFamily:"'Cinzel',serif",fontSize:"8px",color:isTurn?"#80ff80":isMe?"#c8943a":"#7a5030",letterSpacing:"0.5px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name||p.playerName||"?"}</div>
@@ -594,11 +594,11 @@ export default function Game({session,character,onLeave}){
       {/* Player bar */}
       <div style={{position:"relative",zIndex:10,background:"rgba(0,0,0,.68)",backdropFilter:"blur(10px)",borderTop:"1px solid rgba(212,170,60,.1)",padding:"8px 14px",maxWidth:"880px",width:"100%",margin:"0 auto"}}>
         <div style={{display:"flex",gap:"7px",overflowX:"auto",paddingBottom:"2px"}}>
-          <PlayerCard p={myChar} isMe={true} isTurn={currentTurn===playerName} initiative={initiative} onClick={()=>setShowSheet(true)} onPortraitClick={(url)=>setLightbox(url)}/>
+          <PlayerCard p={myChar} isMe={true} isTurn={currentTurn===playerName} initiative={initiative} onClick={()=>setShowSheet(true)}/>
           {playerList.filter(p=>p.playerName!==playerName).map(p=>{
             const sheet=characters[p.playerName]||{};
             const merged={...sheet,portrait:sheet.portrait||p.portrait||null,playerName:p.playerName,name:sheet.name||p.name,cls:sheet.cls||p.cls,race:sheet.race||p.race};
-            return <PlayerCard key={p.playerName} p={merged} isMe={false} isTurn={currentTurn===p.playerName} initiative={initiative} onPortraitClick={(url)=>setLightbox(url)}/>;
+            return <PlayerCard key={p.playerName} p={merged} isMe={false} isTurn={currentTurn===p.playerName} initiative={initiative}/>;
           })}
           {Array.from({length:Math.max(0,(playerCount||2)-playerList.length)}).map((_,i)=>(
             <div key={"e"+i} style={{width:"72px",flexShrink:0,height:"72px",borderRadius:"10px",background:"rgba(16,8,3,.3)",border:"1px dashed rgba(200,148,58,.07)",display:"flex",alignItems:"center",justifyContent:"center",color:"#1a0e04",fontFamily:"'Cinzel',serif",fontSize:"20px"}}>+</div>
@@ -666,6 +666,12 @@ export default function Game({session,character,onLeave}){
       {showDice&&<DiceRoller onRoll={handleDiceRoll} onClose={()=>setShowDice(false)}/>}
       {showSheet&&<CharacterSheet character={myChar} playerName={playerName} onClose={()=>setShowSheet(false)}/>}
       {showMap&&<MapView players={players} characters={characters} mapData={null} onClose={()=>setShowMap(false)}/>}
+      {lightbox&&(
+        <div onClick={()=>setLightbox(null)} style={{position:"fixed",inset:0,background:"rgba(0,0,0,.93)",display:"flex",alignItems:"center",justifyContent:"center",zIndex:2000,cursor:"pointer",backdropFilter:"blur(8px)"}}>
+          <img src={lightbox} alt="Expanded" style={{maxWidth:"95vw",maxHeight:"92vh",objectFit:"contain",borderRadius:"12px",border:"1px solid rgba(212,170,60,.25)",boxShadow:"0 0 60px rgba(0,0,0,.9)"}}/>
+          <div style={{position:"absolute",top:"16px",right:"20px",color:"rgba(212,170,60,.5)",fontFamily:"'Cinzel',serif",fontSize:"11px",letterSpacing:"2px"}}>CLICK ANYWHERE TO CLOSE</div>
+        </div>
+      )}
     </div>
   );
 }
