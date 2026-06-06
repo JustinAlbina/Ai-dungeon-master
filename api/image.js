@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   res.setHeader("Access-Control-Allow-Origin", "*");
 
-  const { prompt } = req.body;
+  const { prompt, size = "1792x1024" } = req.body;
   if (!prompt) return res.status(400).json({ error: "No prompt" });
 
   try {
@@ -19,9 +19,9 @@ export default async function handler(req, res) {
       },
       body: JSON.stringify({
         model: "dall-e-3",
-        prompt: "Fantasy D&D scene, dramatic painterly illustration style, cinematic lighting: " + prompt.substring(0, 800),
+        prompt: prompt.substring(0, 900),
         n: 1,
-        size: "1792x1024",
+        size: size,
         quality: "standard",
       }),
     });
