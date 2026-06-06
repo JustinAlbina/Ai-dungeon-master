@@ -25,13 +25,25 @@ Players: ${playerList||"unknown"}
 
 CORE RULES:
 1. Teach rules naturally as you go — never dump rules at once
-2. Run everything — combat, NPCs, dice rolls, world events
+2. Run everything — combat, NPCs, world events
 3. Track HP, stats, inventory for ALL characters precisely
 4. Be forgiving and encouraging — beginners make mistakes
 5. Use every player's character name and reference their backstories constantly
 
-DICE: When a roll is needed say "Roll a d20!" then report: [Rolled 14 + 3 STR = 17 — SUCCESS!]
-Always state all character HP values after any combat.
+DICE ROLL RULES — CRITICAL:
+When a player action requires a dice roll, you MUST:
+1. Narrate the action and its dramatic setup — build the tension
+2. End your message with ONLY this tag on its own line (nothing after it):
+   <ROLL_REQUEST>{"die":"d20","skill":"Stealth","ability":"DEX","flavor":"The shadows hold their breath as you slip past the guard."}</ROLL_REQUEST>
+3. STOP there. Do NOT narrate the outcome. Do NOT roll for the player. Do NOT include [Rolled X] in your text.
+4. Wait. The player will roll and their result will arrive as: [ROLL_RESULT: 17 (14 + 3 DEX)]
+5. When you receive a [ROLL_RESULT], react to that exact number and continue the story.
+
+Valid die values: d4, d6, d8, d10, d12, d20, d100
+Valid ability values: STR, DEX, CON, INT, WIS, CHA
+DC guidelines: Easy DC 10, Medium DC 15, Hard DC 20, Very Hard DC 25
+
+NEVER self-roll. NEVER write [Rolled X + Y = Z]. The player rolls — you react.
 
 OPENING: Welcome all players by name, reference their specific backstories and classes, paint a vivid opening scene. ALWAYS include a <SCENE_IMAGE> tag on your FIRST response — this is mandatory.
 
@@ -57,7 +69,7 @@ Current turn in combat:
 FORMATTING: **bold** for key terms and names. *italics* for atmosphere and NPC speech. # for chapter/section headers. NO markdown tables. NO pipe characters.`;
 }
 
-const TAGS=["SHEET_UPDATE","SCENE_IMAGE","QUEST_UPDATE","INITIATIVE","TURN"];
+const TAGS=["SHEET_UPDATE","SCENE_IMAGE","QUEST_UPDATE","INITIATIVE","TURN","ROLL_REQUEST"];
 function stripTags(text){let t=text;TAGS.forEach(tag=>{t=t.replace(new RegExp("<"+tag+">[\\s\\S]*?</"+tag+">","g"),"");});return t.trim();}
 
 function fmt(text){
@@ -93,6 +105,14 @@ function parseAllSheets(text){
   return updates;
 }
 
+// Parse a ROLL_REQUEST tag from DM text
+function parseRollRequest(text){
+  const m=text.match(/<ROLL_REQUEST>([\s\S]*?)<\/ROLL_REQUEST>/);
+  if(!m)return null;
+  try{return JSON.parse(m[1].trim());}catch{return null;}
+}
+
+// Pre-fetch TTS chunks — fetches chunk[i+1] while chunk[i] plays, eliminating gaps
 function chunkText(text){
   const sentences=text.match(/[^.!?]+[.!?]+[\s]*/g)||[text];
   const chunks=[];let cur="";
@@ -123,6 +143,38 @@ function PlayerCard({p,isMe,isTurn,initiative,onClick}){
   );
 }
 
+// Dice panel shown when DM requests a roll — blocks input until player rolls
+function RollPanel({rollRequest,character,onSubmit}){
+  const abilityMap={STR:"strength",DEX:"dexterity",CON:"constitution",INT:"intelligence",WIS:"wisdom",CHA:"charisma"};
+  const getModifier=(score)=>Math.floor(((score||10)-10)/2);
+  const sides=parseInt((rollRequest.die||"d20").replace("d",""))||20;
+  const abilityKey=abilityMap[(rollRequest.ability||"").toUpperCase()]||null;
+  const abilityScore=abilityKey?((character?.stats||{})[rollRequest.ability?.toUpperCase()]||10):10;
+  const modifier=abilityKey?getModifier(abilityScore):0;
+
+  const handleRoll=()=>{
+    const raw=Math.floor(Math.random()*sides)+1;
+    const total=raw+modifier;
+    const modStr=modifier>=0?`+ ${modifier}`:`- ${Math.abs(modifier)}`;
+    const breakdown=modifier!==0?`${raw} ${modStr} ${rollRequest.ability} = ${total}`:`${raw}`;
+    onSubmit(total,breakdown,raw===sides,raw===1);
+  };
+
+  return(
+    <div style={{background:"linear-gradient(135deg,rgba(80,30,0,.95),rgba(40,10,0,.95))",border:"2px solid #c8943a",borderRadius:"12px",padding:"18px 20px",margin:"8px 0",textAlign:"center",animation:"fadeUp .3s ease"}}>
+      <div style={{fontFamily:"'Cinzel',serif",fontSize:"10px",color:"#8a6030",letterSpacing:"2px",marginBottom:"8px"}}>🎲 ROLL REQUIRED</div>
+      {rollRequest.flavor&&<div style={{fontStyle:"italic",color:"#c9a96e",fontSize:"14px",marginBottom:"10px",fontFamily:"'Crimson Text',serif"}}>"{rollRequest.flavor}"</div>}
+      <div style={{color:"#e8d5a3",fontSize:"15px",marginBottom:"14px",fontFamily:"'Crimson Text',serif"}}>
+        Roll a <strong style={{color:"#f4c842"}}>{rollRequest.die}</strong> for <strong style={{color:"#f4c842"}}>{rollRequest.skill}</strong>
+        {modifier!==0&&<span style={{color:"#c8943a"}}> ({modifier>=0?"+":""}{modifier} {rollRequest.ability})</span>}
+      </div>
+      <button onClick={handleRoll} style={{background:"linear-gradient(135deg,#5a2000,#8b3a00)",border:"2px solid #c8943a",borderRadius:"8px",color:"#f4c842",fontFamily:"'Cinzel',serif",fontSize:"15px",letterSpacing:"2px",padding:"12px 36px",cursor:"pointer",transition:"all .2s",boxShadow:"0 0 20px rgba(200,148,58,.3)"}}>
+        🎲 ROLL {rollRequest.die.toUpperCase()}
+      </button>
+    </div>
+  );
+}
+
 const QUICK=["What are my options?","What's my HP?","I look around carefully","I talk to the NPC","I attack!","Explain that rule","Recap the story so far"];
 
 export default function Game({session,character,onLeave}){
@@ -147,7 +199,7 @@ export default function Game({session,character,onLeave}){
   const[players,setPlayers]=useState({});
   const[initialized,setInitialized]=useState(false);
   const[started,setStarted]=useState(false);
-  
+  const[pendingRoll,setPendingRoll]=useState(null); // dice pause system
 
   const bottomRef=useRef(null);
   const audioRef=useRef(null);
@@ -163,7 +215,6 @@ export default function Game({session,character,onLeave}){
     const init=async()=>{
       const{data}=await supabase.from("sessions").select("*").eq("code",sessionId).single();
       if(data){
-        // Register this player with their FULL character data including stats/abilities/spells
         const newPlayers={...(data.players||{}),[playerName]:{
           ...character,
           playerName,
@@ -215,7 +266,6 @@ export default function Game({session,character,onLeave}){
   };
 
   const startCampaign=async()=>{
-    // Mark session as started so all clients know
     const{data}=await supabase.from("sessions").select("players").eq("code",sessionId).single();
     await supabase.from("sessions").update({started:true}).eq("code",sessionId);
     setStarted(true);
@@ -223,27 +273,42 @@ export default function Game({session,character,onLeave}){
     launch(data?.players||players);
   };
 
-  const speakChunk=async(chunk)=>{
-    const res=await fetch("/api/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:chunk,voice:"onyx"})});
-    if(!res.ok)return false;
+  // --- TTS: pre-fetch pipeline (fetches next chunk while current plays) ---
+  const fetchTTSChunk=async(text)=>{
+    const res=await fetch("/api/tts",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text,voice:"fable"})});
+    if(!res.ok)return null;
     const blob=await res.blob();
-    const url=URL.createObjectURL(blob);
-    return new Promise((resolve)=>{
-      if(stopRef.current){URL.revokeObjectURL(url);resolve(false);return;}
-      const audio=new Audio(url);
-      audio._url=url;audioRef.current=audio;
-      audio.onended=()=>{URL.revokeObjectURL(url);resolve(true);};
-      audio.onerror=()=>{URL.revokeObjectURL(url);resolve(false);};
-      audio.play().catch(()=>resolve(false));
-    });
+    return URL.createObjectURL(blob);
   };
+
+  const playAudioUrl=(url)=>new Promise((resolve)=>{
+    if(stopRef.current){URL.revokeObjectURL(url);resolve(false);return;}
+    const audio=new Audio(url);
+    audio._url=url;audioRef.current=audio;
+    audio.onended=()=>{URL.revokeObjectURL(url);resolve(true);};
+    audio.onerror=()=>{URL.revokeObjectURL(url);resolve(false);};
+    audio.play().catch(()=>resolve(false));
+  });
 
   const speakOpenAI=useCallback(async(text)=>{
     const t=cleanSpeech(text);if(!t)return false;
     const chunks=chunkText(t);
     stopRef.current=false;setSpeaking(true);
-    for(let i=0;i<chunks.length;i++){if(stopRef.current)break;await speakChunk(chunks[i]);}
+
+    // Pre-fetch promises array — start fetching ahead of playback
+    const fetches=chunks.map(()=>null);
+    const prefetch=(i)=>{if(i<chunks.length)fetches[i]=fetchTTSChunk(chunks[i]);};
+    prefetch(0);prefetch(1); // kick off first two immediately
+
+    for(let i=0;i<chunks.length;i++){
+      if(stopRef.current)break;
+      prefetch(i+2); // stay 2 ahead
+      const url=await fetches[i];
+      if(!url||stopRef.current)continue;
+      await playAudioUrl(url);
+    }
     setSpeaking(false);return true;
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   },[]);
 
   const speakBrowser=useCallback((text)=>{
@@ -301,16 +366,10 @@ export default function Game({session,character,onLeave}){
     setImageLoading(true);
     try{
       const fullPrompt="Fantasy D&D scene, dramatic painterly illustration, cinematic lighting, highly detailed: "+prompt;
-      console.log("Generating scene image:", fullPrompt.substring(0,100));
       const res=await fetch("/api/image",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({prompt:fullPrompt,size:"1024x1024"})});
       const data=await res.json();
-      if(res.ok&&data.url){
-        console.log("Scene image generated OK");
-        setImageLoading(false);
-        return data.url;
-      }else{
-        console.error("Scene image failed:",data.error);
-      }
+      if(res.ok&&data.url){setImageLoading(false);return data.url;}
+      else{console.error("Scene image failed:",data.error);}
     }catch(e){console.error("Scene image exception:",e.message);}
     setImageLoading(false);
     return null;
@@ -324,29 +383,22 @@ export default function Game({session,character,onLeave}){
       const reg=(currentPlayers||players||{})[pName]||{};
       const portrait=existing.portrait||reg.portrait||(pName===playerName?character?.portrait:null)||null;
       newChars[pName]={
-        ...reg, ...existing, ...charData, portrait,
+        ...reg,...existing,...charData,portrait,
         stats:(charData.stats&&Object.keys(charData.stats).length>0)?charData.stats:(existing.stats||reg.stats||{}),
         abilities:(charData.abilities&&charData.abilities.length>0)?charData.abilities:(existing.abilities||reg.abilities||[]),
         spells:(charData.spells&&charData.spells.length>0)?charData.spells:(existing.spells||reg.spells||[]),
         inventory:(charData.inventory&&charData.inventory.length>0)?charData.inventory:(existing.inventory||reg.inventory||[]),
       };
     });
-
     const questUpdate=parseTag(reply,"QUEST_UPDATE");
     const newQuests=questUpdate?[...prevQuests,...questUpdate.filter(q=>!prevQuests.find(eq=>eq.id===q.id))]:prevQuests;
     const initUpdate=parseTag(reply,"INITIATIVE");
     const newInit=initUpdate||prevInit;
     const turnUpdate=parseTag(reply,"TURN");
     const newTurn=turnUpdate||prevTurn;
-
-    // Generate scene image
     const imagePrompt=parseTag(reply,"SCENE_IMAGE");
     let newImage=currentImg;
-    if(imagePrompt){
-      const url=await generateImage(imagePrompt);
-      if(url){setSceneImage(url);newImage=url;}
-    }
-
+    if(imagePrompt){const url=await generateImage(imagePrompt);if(url){setSceneImage(url);newImage=url;}}
     if(Object.keys(sheetUpdates).length)setCharacters(newChars);
     if(questUpdate)setQuests(newQuests);
     if(initUpdate)setInitiative(newInit);
@@ -355,65 +407,43 @@ export default function Game({session,character,onLeave}){
   };
 
   const launch=async(currentPlayers)=>{
-    setLoading(true);
-    // Show loading image immediately
-    setImageLoading(true);
+    setLoading(true);setImageLoading(true);
     try{
       const settingHint=setting||"High Fantasy";
       const prompt="The party has assembled. Welcome each player by name, describe their appearance based on their class and race, reference their backstories specifically. Then paint a vivid and exciting opening scene for the "+settingHint+" campaign. You MUST include a <SCENE_IMAGE> tag with a detailed visual description of the opening location. Also output <SHEET_UPDATE> for each player with their starting stats and equipment based on their class.";
-
-      // Run DM response and scene image in parallel
-      // First get a quick scene image based on the setting while DM is thinking
-      const quickScenePrompt = settingHint==="Pirates & Seas" ? "A dramatic port tavern at dusk, weathered wooden docks, lanterns swaying, mysterious sailors" :
-        settingHint==="Dark Fantasy" ? "A grim dark forest path at night, dead trees, ominous fog, distant flickering torches" :
-        settingHint==="Horror" ? "An ancient crumbling mansion at midnight, lightning illuminating gargoyles, fog covering the ground" :
-        settingHint==="Sci-Fi D&D" ? "A futuristic spaceport with ancient ruins visible, neon lights mixing with magical glows" :
+      const quickScenePrompt=settingHint==="Pirates & Seas"?"A dramatic port tavern at dusk, weathered wooden docks, lanterns swaying, mysterious sailors":
+        settingHint==="Dark Fantasy"?"A grim dark forest path at night, dead trees, ominous fog, distant flickering torches":
+        settingHint==="Horror"?"An ancient crumbling mansion at midnight, lightning illuminating gargoyles, fog covering the ground":
+        settingHint==="Sci-Fi D&D"?"A futuristic spaceport with ancient ruins visible, neon lights mixing with magical glows":
         "A grand medieval fantasy tavern interior, warm firelight, adventurers gathered, weapons on walls";
-
-      // Start image generation immediately
-      const imagePromise = generateImage(quickScenePrompt);
-
-      // Get DM response simultaneously
-      const reply = await askClaude([{role:"user",content:prompt}], currentPlayers);
+      const imagePromise=generateImage(quickScenePrompt);
+      const reply=await askClaude([{role:"user",content:prompt}],currentPlayers);
       const msg={role:"assistant",content:reply,id:Date.now(),player:"DM"};
       setMessages([msg]);
-
-      // Wait for initial image
-      let imageUrl = await imagePromise;
-
-      // Check if DM provided a better scene description
-      const dmScenePrompt = parseTag(reply, "SCENE_IMAGE");
-      if(dmScenePrompt){
-        // Generate the DM's specific scene image too
-        const betterUrl = await generateImage(dmScenePrompt);
-        if(betterUrl) imageUrl = betterUrl;
-      }
-
-      if(imageUrl){ setSceneImage(imageUrl); }
+      let imageUrl=await imagePromise;
+      const dmScenePrompt=parseTag(reply,"SCENE_IMAGE");
+      if(dmScenePrompt){const betterUrl=await generateImage(dmScenePrompt);if(betterUrl)imageUrl=betterUrl;}
+      if(imageUrl)setSceneImage(imageUrl);
       setImageLoading(false);
-
       const sheetUpdates=parseAllSheets(reply);
       const newChars={};
       Object.entries(sheetUpdates).forEach(([pName,charData])=>{
         const reg=(currentPlayers||{})[pName]||{};
         const portrait=reg.portrait||(pName===playerName?character?.portrait:null)||null;
-        newChars[pName]={
-          ...reg, ...charData, portrait,
+        newChars[pName]={...reg,...charData,portrait,
           stats:(charData.stats&&Object.keys(charData.stats).length>0)?charData.stats:(reg.stats||{}),
           abilities:(charData.abilities&&charData.abilities.length>0)?charData.abilities:(reg.abilities||[]),
           spells:(charData.spells&&charData.spells.length>0)?charData.spells:(reg.spells||[]),
           inventory:(charData.inventory&&charData.inventory.length>0)?charData.inventory:(reg.inventory||[]),
         };
       });
-      if(Object.keys(newChars).length) setCharacters(newChars);
-
+      if(Object.keys(newChars).length)setCharacters(newChars);
       const questUpdate=parseTag(reply,"QUEST_UPDATE");
-      if(questUpdate) setQuests(questUpdate);
+      if(questUpdate)setQuests(questUpdate);
       const initUpdate=parseTag(reply,"INITIATIVE");
-      if(initUpdate) setInitiative(initUpdate);
+      if(initUpdate)setInitiative(initUpdate);
       const turnUpdate=parseTag(reply,"TURN");
-      if(turnUpdate) setCurrentTurn(turnUpdate);
-
+      if(turnUpdate)setCurrentTurn(turnUpdate);
       await persist([msg],newChars,questUpdate||quests,imageUrl,initUpdate||initiative,turnUpdate||currentTurn,currentPlayers);
       speak(reply);
     }catch(e){
@@ -424,6 +454,7 @@ export default function Game({session,character,onLeave}){
     setLoading(false);
   };
 
+  // Send a message to Claude and handle the response
   const send=async(text)=>{
     if(!text.trim()||loading||!isHost)return;
     const userMsg={role:"user",content:text,id:Date.now(),player:playerName};
@@ -434,13 +465,34 @@ export default function Game({session,character,onLeave}){
       const dmMsg={role:"assistant",content:reply,id:Date.now()+1,player:"DM"};
       const newMsgs=[...history,dmMsg];
       setMessages(newMsgs);
+
+      // Check if DM wants a roll — if so, pause and show dice panel
+      const rollReq=parseRollRequest(reply);
+      if(rollReq){
+        setPendingRoll(rollReq);
+        // Speak only the narration (tags are stripped by cleanSpeech/stripTags)
+        speak(reply);
+      } else {
+        setPendingRoll(null);
+        speak(reply);
+      }
+
       const{newChars,newQuests,newImage,newInit,newTurn}=await processDMReply(reply,characters,quests,initiative,currentTurn,sceneImage,players);
       await persist(newMsgs,newChars,newQuests,newImage,newInit,newTurn,players);
-      speak(reply);
     }catch(e){setMessages(p=>[...p,{role:"assistant",content:"Error: "+e.message,id:Date.now()+1}]);}
     setLoading(false);
   };
 
+  // Called when player completes their roll from the dice panel
+  const handleRollResult=(total,breakdown,isCrit,isFail)=>{
+    setPendingRoll(null);
+    let msg=`[ROLL_RESULT: ${total} (${breakdown})]`;
+    if(isCrit) msg+=" — NATURAL 20! CRITICAL HIT!";
+    if(isFail) msg+=" — NATURAL 1! CRITICAL FAIL!";
+    send(msg);
+  };
+
+  // Manual dice roller (from the 🎲 button) — still works as before
   const handleDiceRoll=({die,roll,modifier,total,isCrit,isFail})=>{
     setShowDice(false);
     let msg=playerName+" rolled d"+die+": "+roll;
@@ -450,11 +502,9 @@ export default function Game({session,character,onLeave}){
     send(msg);
   };
 
-  // Build my character — merge sheet updates, player registration, and character creation data
   const myCharSheet=characters[playerName]||{};
   const myChar={
-    ...character,
-    ...myCharSheet,
+    ...character,...myCharSheet,
     portrait:myCharSheet.portrait||character?.portrait||null,
     playerName,
     name:myCharSheet.name||character?.name,
@@ -476,7 +526,7 @@ export default function Game({session,character,onLeave}){
   const playerList=Object.values(players);
   const connectedCount=playerList.length;
 
-  // Waiting screen for non-started sessions
+  // Waiting screen
   if(!started){
     return(
       <div style={{minHeight:"100vh",background:"radial-gradient(ellipse at 20% 0%,#1a0a2e 0%,#0d0d1a 40%,#000508 100%)",display:"flex",alignItems:"center",justifyContent:"center",fontFamily:"'Crimson Text',Georgia,serif",color:"#e8d5a3"}}>
@@ -484,8 +534,6 @@ export default function Game({session,character,onLeave}){
           <div style={{fontSize:"48px",marginBottom:"16px",animation:"breathe 3s ease-in-out infinite"}}>🐉</div>
           <div style={{fontFamily:"'Cinzel',serif",fontSize:"20px",fontWeight:700,background:"linear-gradient(135deg,#f4c842,#e8a020)",WebkitBackgroundClip:"text",WebkitTextFillColor:"transparent",letterSpacing:"3px",marginBottom:"8px"}}>WAITING FOR PARTY</div>
           <div style={{color:"#6a5030",fontFamily:"'Cinzel',serif",fontSize:"10px",letterSpacing:"2px",marginBottom:"24px"}}>SESSION: {sessionId}</div>
-
-          {/* Connected players */}
           <div style={{marginBottom:"20px"}}>
             <div style={{fontFamily:"'Cinzel',serif",fontSize:"10px",color:"#7a5030",letterSpacing:"2px",marginBottom:"10px"}}>{connectedCount} / {playerCount} ADVENTURERS READY</div>
             <div style={{display:"flex",gap:"8px",justifyContent:"center",flexWrap:"wrap"}}>
@@ -500,11 +548,9 @@ export default function Game({session,character,onLeave}){
               ))}
             </div>
           </div>
-
           <div style={{color:"#6a5030",fontSize:"14px",lineHeight:1.6,marginBottom:"20px",fontFamily:"'Crimson Text',serif"}}>
             {isHost?"Once everyone has joined and created their character, start the adventure!":"Waiting for the host to start the campaign..."}
           </div>
-
           {isHost&&(
             <button onClick={startCampaign} style={{width:"100%",padding:"14px",background:"linear-gradient(135deg,#5a3a00,#3a2000)",border:"1px solid #c8943a",borderRadius:"8px",color:"#f4c842",fontFamily:"'Cinzel',serif",fontSize:"14px",letterSpacing:"2px",cursor:"pointer",transition:"all .2s"}}>
               ⚔️ START THE CAMPAIGN
@@ -544,7 +590,6 @@ export default function Game({session,character,onLeave}){
         <div style={{fontSize:"9px",color:"#3a2015",letterSpacing:"2px",fontFamily:"'Cinzel',serif",marginTop:"2px"}}>{setting.toUpperCase()} · {playerCount} PLAYERS · CODE: <span style={{color:"#5a3515"}}>{sessionId}</span></div>
       </header>
 
-      {/* Scene image */}
       {(sceneImage||imageLoading)&&(
         <div style={{position:"relative",zIndex:5,maxWidth:"880px",width:"100%",margin:"0 auto",padding:"10px 16px 0"}}>
           {imageLoading
@@ -560,7 +605,6 @@ export default function Game({session,character,onLeave}){
         </div>
       )}
 
-      {/* Messages */}
       <main style={{flex:1,overflowY:"auto",padding:"12px 16px",position:"relative",zIndex:5,maxWidth:"880px",width:"100%",margin:"0 auto"}}>
         {messages.map((msg,i)=>(
           <div key={msg.id||i} style={{animation:"fadeUp .35s ease forwards",marginBottom:"14px",display:"flex",justifyContent:msg.role==="user"?"flex-end":"flex-start"}}>
@@ -591,7 +635,6 @@ export default function Game({session,character,onLeave}){
         <div ref={bottomRef}/>
       </main>
 
-      {/* Player bar */}
       <div style={{position:"relative",zIndex:10,background:"rgba(0,0,0,.68)",backdropFilter:"blur(10px)",borderTop:"1px solid rgba(212,170,60,.1)",padding:"8px 14px",maxWidth:"880px",width:"100%",margin:"0 auto"}}>
         <div style={{display:"flex",gap:"7px",overflowX:"auto",paddingBottom:"2px"}}>
           <PlayerCard p={myChar} isMe={true} isTurn={currentTurn===playerName} initiative={initiative} onClick={()=>setShowSheet(true)}/>
@@ -606,7 +649,6 @@ export default function Game({session,character,onLeave}){
         </div>
       </div>
 
-      {/* Quests */}
       {showQuests&&activeQuests.length>0&&(
         <div style={{position:"relative",zIndex:10,maxWidth:"880px",width:"100%",margin:"0 auto",padding:"0 14px 5px"}}>
           <div style={{background:"rgba(14,7,2,.92)",border:"1px solid rgba(200,148,58,.16)",borderRadius:"8px",padding:"10px 12px"}}>
@@ -621,25 +663,28 @@ export default function Game({session,character,onLeave}){
         </div>
       )}
 
-      {/* Quick chips */}
       {isHost&&(
         <div style={{position:"relative",zIndex:10,maxWidth:"880px",width:"100%",margin:"0 auto",padding:"0 14px 4px",display:"flex",gap:5,flexWrap:"wrap"}}>
           {QUICK.map(q=>(
-            <button key={q} className="qb" onClick={()=>send(q)} style={{background:"rgba(212,170,60,.05)",border:"1px solid rgba(212,170,60,.12)",color:"#6a4820",borderRadius:11,padding:"3px 9px",fontSize:11,cursor:"pointer",fontFamily:"'Crimson Text',Georgia,serif",transition:"all .15s",whiteSpace:"nowrap"}}>{q}</button>
+            <button key={q} className="qb" onClick={()=>send(q)} disabled={!!pendingRoll||loading} style={{background:"rgba(212,170,60,.05)",border:"1px solid rgba(212,170,60,.12)",color:pendingRoll?"#2a1808":"#6a4820",borderRadius:11,padding:"3px 9px",fontSize:11,cursor:pendingRoll?"not-allowed":"pointer",fontFamily:"'Crimson Text',Georgia,serif",transition:"all .15s",whiteSpace:"nowrap",opacity:pendingRoll?0.4:1}}>{q}</button>
           ))}
         </div>
       )}
 
-      {/* Footer */}
       <footer style={{position:"relative",zIndex:10,background:"rgba(0,0,0,.78)",backdropFilter:"blur(14px)",borderTop:"1px solid rgba(212,170,60,.1)",padding:"9px 13px"}}>
         {isHost?(
           <div style={{maxWidth:"880px",margin:"0 auto"}}>
-            <div style={{display:"flex",gap:7,alignItems:"flex-end"}}>
-              <button onClick={startListening} style={{width:40,height:40,borderRadius:"50%",flexShrink:0,background:listening?"radial-gradient(circle,#8b0000,#4a0000)":"radial-gradient(circle,#2a1500,#100a00)",border:"2px solid "+(listening?"#ff4040":"#6a4010"),color:listening?"#ff8080":"#c8943a",fontSize:14,cursor:"pointer",animation:listening?"lpulse 1s infinite":"none",display:"flex",alignItems:"center",justifyContent:"center"}}>{listening?"🔴":"🎤"}</button>
-              <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send(input);}}} placeholder={listening?"🎤 Listening...":"Type your action... (Enter to send)"} rows={2} style={{flex:1,background:"rgba(12,6,2,.93)",border:"1px solid rgba(200,148,58,.18)",borderRadius:8,padding:"8px 12px",color:"#e8d5a3",fontSize:14,resize:"none",fontFamily:"'Crimson Text',Georgia,serif",lineHeight:1.5}}/>
-              <button onClick={()=>setShowDice(true)} style={{width:40,height:40,borderRadius:"50%",flexShrink:0,background:"radial-gradient(circle,#18082a,#080414)",border:"2px solid #6a4a9a",color:"#b080ef",fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>🎲</button>
-              <button onClick={()=>send(input)} disabled={loading||!input.trim()} style={{width:40,height:40,borderRadius:"50%",flexShrink:0,background:(loading||!input.trim())?"radial-gradient(circle,#111,#080808)":"radial-gradient(circle,#5a3a00,#2a1800)",border:"2px solid "+((loading||!input.trim())?"#181818":"#d4aa3c"),color:(loading||!input.trim())?"#202020":"#f4c842",fontSize:16,cursor:(loading||!input.trim())?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",animation:(!loading&&input.trim())?"glow 2s infinite":"none"}}>⚡</button>
-            </div>
+            {/* Dice panel replaces input when a roll is pending */}
+            {pendingRoll?(
+              <RollPanel rollRequest={pendingRoll} character={myChar} onSubmit={handleRollResult}/>
+            ):(
+              <div style={{display:"flex",gap:7,alignItems:"flex-end"}}>
+                <button onClick={startListening} style={{width:40,height:40,borderRadius:"50%",flexShrink:0,background:listening?"radial-gradient(circle,#8b0000,#4a0000)":"radial-gradient(circle,#2a1500,#100a00)",border:"2px solid "+(listening?"#ff4040":"#6a4010"),color:listening?"#ff8080":"#c8943a",fontSize:14,cursor:"pointer",animation:listening?"lpulse 1s infinite":"none",display:"flex",alignItems:"center",justifyContent:"center"}}>{listening?"🔴":"🎤"}</button>
+                <textarea value={input} onChange={e=>setInput(e.target.value)} onKeyDown={e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();send(input);}}} placeholder={listening?"🎤 Listening...":"Type your action... (Enter to send)"} rows={2} style={{flex:1,background:"rgba(12,6,2,.93)",border:"1px solid rgba(200,148,58,.18)",borderRadius:8,padding:"8px 12px",color:"#e8d5a3",fontSize:14,resize:"none",fontFamily:"'Crimson Text',Georgia,serif",lineHeight:1.5}}/>
+                <button onClick={()=>setShowDice(true)} style={{width:40,height:40,borderRadius:"50%",flexShrink:0,background:"radial-gradient(circle,#18082a,#080414)",border:"2px solid #6a4a9a",color:"#b080ef",fontSize:15,cursor:"pointer",display:"flex",alignItems:"center",justifyContent:"center"}}>🎲</button>
+                <button onClick={()=>send(input)} disabled={loading||!input.trim()} style={{width:40,height:40,borderRadius:"50%",flexShrink:0,background:(loading||!input.trim())?"radial-gradient(circle,#111,#080808)":"radial-gradient(circle,#5a3a00,#2a1800)",border:"2px solid "+((loading||!input.trim())?"#181818":"#d4aa3c"),color:(loading||!input.trim())?"#202020":"#f4c842",fontSize:16,cursor:(loading||!input.trim())?"not-allowed":"pointer",display:"flex",alignItems:"center",justifyContent:"center",animation:(!loading&&input.trim())?"glow 2s infinite":"none"}}>⚡</button>
+              </div>
+            )}
             <div style={{display:"flex",gap:5,marginTop:7,alignItems:"center",flexWrap:"wrap"}}>
               <button className="cb" onClick={()=>setVoiceOn(v=>!v)} style={ctrlBtn(voiceOn)}>{voiceOn?"🔊 Voice":"🔇 Voice"}</button>
               {speaking&&<button className="cb" onClick={stopAudio} style={ctrlBtn(false,"#c84040","#ff8080")}>⏹ Stop</button>}
@@ -648,6 +693,7 @@ export default function Game({session,character,onLeave}){
               <button className="cb" onClick={()=>setShowMap(true)} style={ctrlBtn(false,"#2a4a6a","#507898")}>🗺️ Map</button>
               <div style={{flex:1}}/>
               {speaking&&<span style={{color:"#70c080",fontSize:9,fontFamily:"'Cinzel',serif"}}>🔊 SPEAKING...</span>}
+              {pendingRoll&&<span style={{color:"#f4c842",fontSize:9,fontFamily:"'Cinzel',serif",animation:"glow 1s infinite"}}>🎲 ROLL REQUIRED</span>}
               <button className="cb" onClick={onLeave} style={{...ctrlBtn(false),color:"#2a1508"}}>✕ Leave</button>
             </div>
           </div>

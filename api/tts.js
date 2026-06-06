@@ -7,7 +7,7 @@ export default async function handler(req, res) {
   if (req.method !== "POST") return res.status(405).json({ error: "Method not allowed" });
   res.setHeader("Access-Control-Allow-Origin", "*");
 
-  const { text, voice = "onyx" } = req.body;
+  const { text, voice = "fable" } = req.body;
   if (!text) return res.status(400).json({ error: "No text provided" });
 
   try {
@@ -20,8 +20,8 @@ export default async function handler(req, res) {
       body: JSON.stringify({
         model: "tts-1",
         input: text.substring(0, 4096),
-        voice: voice,
-        speed: 0.92,
+        voice: voice,   // fable: warm, expressive storyteller
+        speed: 1.12,    // tighter pacing, still natural
       }),
     });
 
