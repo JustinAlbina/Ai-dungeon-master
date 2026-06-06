@@ -87,7 +87,7 @@ export default function DungeonMaster() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: "smooth" }); }, [messages]);
 
-  useEffect(() => { if (!ready) { setReady(true); launch(); } }, []);
+  useEffect(() => { if (!ready) { setReady(true); launch(); } }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Claude via server proxy ──────────────────────────────────────
   const askClaude = async (history) => {
