@@ -243,7 +243,7 @@ export default function CharacterCreation({ playerName, sessionId, onDone }) {
             )}
           </div>
         )}
-        {error && <div style={{ color: "#ff7070", fontSize: "13px", textAlign: "center", marginTop: "10px" }}>{error}</div>}
+        
       </div>
     </div>
   );
