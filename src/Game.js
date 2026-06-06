@@ -107,12 +107,12 @@ function chunkText(text){
 function classEmoji(cls){const map={Fighter:"⚔️",Wizard:"🔮",Rogue:"🗡️",Cleric:"✨",Ranger:"🏹",Paladin:"🛡️",Bard:"🎭",Druid:"🌿",Barbarian:"💢",Monk:"👊",Sorcerer:"⚡",Warlock:"👁️"};return map[cls]||"⚔️";}
 function ctrlBtn(active,bc,c){return{background:active?"rgba(212,170,60,.12)":"rgba(24,12,3,.6)",border:"1px solid "+(bc||(active?"#c8943a":"rgba(200,148,58,.15)")),color:c||(active?"#f4c842":"#6a4020"),borderRadius:"16px",padding:"4px 11px",fontSize:"11px",cursor:"pointer",fontFamily:"'Cinzel',serif",letterSpacing:"1px",transition:"all .2s"};}
 
-function PlayerCard({p,isMe,isTurn,initiative,onClick}){
+function PlayerCard({p,isMe,isTurn,initiative,onClick,onPortraitClick}){
   const initPos=initiative.indexOf(p.playerName);
   const hpPct=p.hp!==undefined&&p.maxHp?Math.max(0,Math.min(100,(p.hp/p.maxHp)*100)):null;
   return(
     <div onClick={onClick} style={{width:"72px",flexShrink:0,borderRadius:"10px",cursor:onClick?"pointer":"default",background:isTurn?"linear-gradient(135deg,rgba(20,60,20,.9),rgba(10,40,10,.9))":isMe?"linear-gradient(135deg,rgba(40,20,5,.9),rgba(25,10,3,.9))":"linear-gradient(135deg,rgba(20,10,5,.7),rgba(12,6,3,.7))",border:"1px solid "+(isTurn?"#40c040":isMe?"#c8943a":"rgba(200,148,58,.12)"),padding:"6px",textAlign:"center",animation:isTurn?"turnpulse 1.5s infinite":"none",transition:"all .2s"}}>
-      <div style={{width:"48px",height:"48px",borderRadius:"8px",margin:"0 auto 4px",overflow:"hidden",background:"rgba(0,0,0,.4)",border:"1px solid rgba(200,148,58,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"20px"}}>
+      <div onClick={e=>{if(p.portrait&&onPortraitClick){e.stopPropagation();onPortraitClick(p.portrait);}}} style={{width:"48px",height:"48px",borderRadius:"8px",margin:"0 auto 4px",overflow:"hidden",background:"rgba(0,0,0,.4)",border:"1px solid rgba(200,148,58,.2)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"20px",cursor:p.portrait&&onPortraitClick?"zoom-in":"default"}}>
         {p.portrait?<img src={p.portrait} alt="" style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"top"}}/>:classEmoji(p.cls)}
       </div>
       <div style={{fontFamily:"'Cinzel',serif",fontSize:"8px",color:isTurn?"#80ff80":isMe?"#c8943a":"#7a5030",letterSpacing:"0.5px",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{p.name||p.playerName||"?"}</div>
@@ -136,6 +136,7 @@ export default function Game({session,character,onLeave}){
   const[showDice,setShowDice]=useState(false);
   const[showSheet,setShowSheet]=useState(false);
   const[showMap,setShowMap]=useState(false);
+  const[lightbox,setLightbox]=useState(null);
   const[showQuests,setShowQuests]=useState(false);
   const[characters,setCharacters]=useState({});
   const[quests,setQuests]=useState([]);
@@ -162,8 +163,19 @@ export default function Game({session,character,onLeave}){
     const init=async()=>{
       const{data}=await supabase.from("sessions").select("*").eq("code",sessionId).single();
       if(data){
-        // Register this player with their portrait
-        const newPlayers={...(data.players||{}),[playerName]:{...character,playerName,portrait:character?.portrait||null}};
+        // Register this player with their FULL character data including stats/abilities/spells
+        const newPlayers={...(data.players||{}),[playerName]:{
+          ...character,
+          playerName,
+          portrait:character?.portrait||null,
+          stats:character?.stats||{},
+          abilities:character?.abilities||[],
+          spells:character?.spells||[],
+          inventory:character?.inventory||[],
+          hp:character?.hp||null,
+          maxHp:character?.maxHp||null,
+          ac:character?.ac||null,
+        }};
         await supabase.from("sessions").update({players:newPlayers}).eq("code",sessionId);
         setMessages(data.messages||[]);
         setCharacters(data.characters||{});
@@ -308,9 +320,16 @@ export default function Game({session,character,onLeave}){
     const sheetUpdates=parseAllSheets(reply);
     const newChars={...prevChars};
     Object.entries(sheetUpdates).forEach(([pName,charData])=>{
-      // Always preserve portrait from player registration
-      const portrait=prevChars[pName]?.portrait||(currentPlayers||players)[pName]?.portrait||character?.portrait||null;
-      newChars[pName]={...charData,portrait};
+      const existing=prevChars[pName]||{};
+      const reg=(currentPlayers||players||{})[pName]||{};
+      const portrait=existing.portrait||reg.portrait||(pName===playerName?character?.portrait:null)||null;
+      newChars[pName]={
+        ...reg, ...existing, ...charData, portrait,
+        stats:(charData.stats&&Object.keys(charData.stats).length>0)?charData.stats:(existing.stats||reg.stats||{}),
+        abilities:(charData.abilities&&charData.abilities.length>0)?charData.abilities:(existing.abilities||reg.abilities||[]),
+        spells:(charData.spells&&charData.spells.length>0)?charData.spells:(existing.spells||reg.spells||[]),
+        inventory:(charData.inventory&&charData.inventory.length>0)?charData.inventory:(existing.inventory||reg.inventory||[]),
+      };
     });
 
     const questUpdate=parseTag(reply,"QUEST_UPDATE");
@@ -376,8 +395,15 @@ export default function Game({session,character,onLeave}){
       const sheetUpdates=parseAllSheets(reply);
       const newChars={};
       Object.entries(sheetUpdates).forEach(([pName,charData])=>{
-        const portrait=(currentPlayers||{})[pName]?.portrait||null;
-        newChars[pName]={...charData,portrait};
+        const reg=(currentPlayers||{})[pName]||{};
+        const portrait=reg.portrait||(pName===playerName?character?.portrait:null)||null;
+        newChars[pName]={
+          ...reg, ...charData, portrait,
+          stats:(charData.stats&&Object.keys(charData.stats).length>0)?charData.stats:(reg.stats||{}),
+          abilities:(charData.abilities&&charData.abilities.length>0)?charData.abilities:(reg.abilities||[]),
+          spells:(charData.spells&&charData.spells.length>0)?charData.spells:(reg.spells||[]),
+          inventory:(charData.inventory&&charData.inventory.length>0)?charData.inventory:(reg.inventory||[]),
+        };
       });
       if(Object.keys(newChars).length) setCharacters(newChars);
 
@@ -424,9 +450,10 @@ export default function Game({session,character,onLeave}){
     send(msg);
   };
 
-  // Build my character merging sheet data + portrait from character creation
+  // Build my character — merge sheet updates, player registration, and character creation data
   const myCharSheet=characters[playerName]||{};
   const myChar={
+    ...character,
     ...myCharSheet,
     portrait:myCharSheet.portrait||character?.portrait||null,
     playerName,
@@ -434,6 +461,14 @@ export default function Game({session,character,onLeave}){
     cls:myCharSheet.cls||character?.cls,
     race:myCharSheet.race||character?.race,
     backstory:character?.backstory,
+    stats:(myCharSheet.stats&&Object.keys(myCharSheet.stats).length>0)?myCharSheet.stats:(character?.stats||{}),
+    abilities:(myCharSheet.abilities&&myCharSheet.abilities.length>0)?myCharSheet.abilities:(character?.abilities||[]),
+    spells:(myCharSheet.spells&&myCharSheet.spells.length>0)?myCharSheet.spells:(character?.spells||[]),
+    inventory:(myCharSheet.inventory&&myCharSheet.inventory.length>0)?myCharSheet.inventory:(character?.inventory||[]),
+    hp:myCharSheet.hp!==null&&myCharSheet.hp!==undefined?myCharSheet.hp:character?.hp,
+    maxHp:myCharSheet.maxHp||character?.maxHp,
+    ac:myCharSheet.ac||character?.ac,
+    level:myCharSheet.level||character?.level||1,
   };
 
   const lastDM=[...messages].reverse().find(m=>m.role==="assistant");
@@ -513,8 +548,14 @@ export default function Game({session,character,onLeave}){
       {(sceneImage||imageLoading)&&(
         <div style={{position:"relative",zIndex:5,maxWidth:"880px",width:"100%",margin:"0 auto",padding:"10px 16px 0"}}>
           {imageLoading
-            ?<div style={{width:"100%",height:"130px",background:"rgba(20,10,5,.6)",borderRadius:"10px",border:"1px solid rgba(200,148,58,.15)",display:"flex",alignItems:"center",justifyContent:"center",color:"#4a3020",fontFamily:"'Cinzel',serif",fontSize:"11px",letterSpacing:"2px"}}>🖼️ PAINTING THE SCENE...</div>
-            :<img src={sceneImage} alt="Scene" style={{width:"100%",maxHeight:"220px",objectFit:"cover",borderRadius:"10px",border:"1px solid rgba(200,148,58,.22)",animation:"imgfade .8s ease",boxShadow:"0 4px 20px rgba(0,0,0,.7)",cursor:"pointer"}} onClick={()=>window.open(sceneImage,"_blank")}/>
+            ?<div style={{width:"100%",height:"200px",background:"rgba(20,10,5,.6)",borderRadius:"10px",border:"1px solid rgba(200,148,58,.15)",display:"flex",flexDirection:"column",alignItems:"center",justifyContent:"center",gap:"10px",color:"#4a3020",fontFamily:"'Cinzel',serif",fontSize:"11px",letterSpacing:"2px"}}>
+                <div style={{fontSize:"28px",animation:"breathe 1.5s infinite"}}>🖼️</div>
+                PAINTING THE SCENE...
+              </div>
+            :<div style={{position:"relative",cursor:"pointer"}} onClick={()=>setLightbox(sceneImage)}>
+                <img src={sceneImage} alt="Scene" style={{width:"100%",maxHeight:"280px",objectFit:"cover",borderRadius:"10px",border:"1px solid rgba(200,148,58,.25)",animation:"imgfade .8s ease",boxShadow:"0 4px 24px rgba(0,0,0,.8)",display:"block"}}/>
+                <div style={{position:"absolute",bottom:"8px",right:"10px",background:"rgba(0,0,0,.6)",color:"rgba(212,170,60,.7)",fontFamily:"'Cinzel',serif",fontSize:"9px",letterSpacing:"1px",padding:"3px 8px",borderRadius:"10px"}}>🔍 CLICK TO EXPAND</div>
+              </div>
           }
         </div>
       )}
@@ -553,11 +594,11 @@ export default function Game({session,character,onLeave}){
       {/* Player bar */}
       <div style={{position:"relative",zIndex:10,background:"rgba(0,0,0,.68)",backdropFilter:"blur(10px)",borderTop:"1px solid rgba(212,170,60,.1)",padding:"8px 14px",maxWidth:"880px",width:"100%",margin:"0 auto"}}>
         <div style={{display:"flex",gap:"7px",overflowX:"auto",paddingBottom:"2px"}}>
-          <PlayerCard p={myChar} isMe={true} isTurn={currentTurn===playerName} initiative={initiative} onClick={()=>setShowSheet(true)}/>
+          <PlayerCard p={myChar} isMe={true} isTurn={currentTurn===playerName} initiative={initiative} onClick={()=>setShowSheet(true)} onPortraitClick={(url)=>setLightbox(url)}/>
           {playerList.filter(p=>p.playerName!==playerName).map(p=>{
             const sheet=characters[p.playerName]||{};
             const merged={...sheet,portrait:sheet.portrait||p.portrait||null,playerName:p.playerName,name:sheet.name||p.name,cls:sheet.cls||p.cls,race:sheet.race||p.race};
-            return <PlayerCard key={p.playerName} p={merged} isMe={false} isTurn={currentTurn===p.playerName} initiative={initiative}/>;
+            return <PlayerCard key={p.playerName} p={merged} isMe={false} isTurn={currentTurn===p.playerName} initiative={initiative} onPortraitClick={(url)=>setLightbox(url)}/>;
           })}
           {Array.from({length:Math.max(0,(playerCount||2)-playerList.length)}).map((_,i)=>(
             <div key={"e"+i} style={{width:"72px",flexShrink:0,height:"72px",borderRadius:"10px",background:"rgba(16,8,3,.3)",border:"1px dashed rgba(200,148,58,.07)",display:"flex",alignItems:"center",justifyContent:"center",color:"#1a0e04",fontFamily:"'Cinzel',serif",fontSize:"20px"}}>+</div>

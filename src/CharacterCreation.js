@@ -137,7 +137,8 @@ export default function CharacterCreation({ playerName, onDone }) {
         <div style={{background:"linear-gradient(135deg,rgba(24,11,3,.98),rgba(12,6,22,.98))",border:"1px solid rgba(212,170,60,.4)",borderRadius:"16px",padding:"24px",boxShadow:"0 0 40px rgba(0,0,0,.9)"}}>
           {/* Portrait + header */}
           <div style={{display:"flex",gap:"20px",marginBottom:"20px",alignItems:"flex-start"}}>
-            <div style={{width:"120px",height:"160px",flexShrink:0,borderRadius:"10px",overflow:"hidden",border:"2px solid rgba(212,170,60,.4)",background:"rgba(20,10,5,.8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"32px"}}>
+            <div style={{width:"160px",height:"220px",flexShrink:0,borderRadius:"12px",overflow:"hidden",border:"2px solid rgba(212,170,60,.5)",background:"rgba(20,10,5,.8)",display:"flex",alignItems:"center",justifyContent:"center",fontSize:"32px",cursor:finalChar.portrait?"pointer":"default",boxShadow:"0 0 20px rgba(0,0,0,.8)"}}
+               onClick={()=>finalChar.portrait&&window.open(finalChar.portrait,"_blank")}>
               {finalChar.portrait?<img src={finalChar.portrait} alt="" style={{width:"100%",height:"100%",objectFit:"cover",objectPosition:"top"}}/>:"⚔️"}
             </div>
             <div style={{flex:1}}>
